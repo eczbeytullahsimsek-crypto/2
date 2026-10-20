@@ -20,7 +20,7 @@ import androidx.ink.brush.Brush
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.StockBrushes
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-import androidx.ink.strokes.InputToolType
+import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.input.motionprediction.MotionEventPredictor
@@ -130,6 +130,20 @@ class InkPageView(context: Context) : FrameLayout(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w != oldw) rebuild()
+    }
+
+    private fun MutableStrokeInputBatch.addOrIgnore(
+        type: InputToolType,
+        x: Float,
+        y: Float,
+        elapsedTimeMillis: Long,
+        pressure: Float = 0f
+    ) {
+        try {
+            add(type = type, x = x, y = y, elapsedTimeMillis = elapsedTimeMillis, pressure = pressure)
+        } catch (_: Throwable) {
+            // Ignore points that cannot be added to stroke batch
+        }
     }
 
     private fun toStroke(d: StrokeData, w: Float): Stroke {
