@@ -1,17 +1,30 @@
 package com.inknote.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.RectF
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,57 +37,88 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.inknote.app.AppViewModel
 import com.inknote.app.Route
+import com.inknote.app.data.AudioRecording
+import com.inknote.app.data.Exporter
 import com.inknote.app.data.Notebook
 import com.inknote.app.data.NotebookKind
 import com.inknote.app.data.PaperTones
 import com.inknote.app.data.StrokeData
 import com.inknote.app.ink.InkPageView
 import com.inknote.app.ink.Tool
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 private class ViewHolder { var v: InkPageView? = null }
 
+private fun formatMs(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+}
+
 @Composable
 fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val nb = vm.current
+    var showExportDialog by remember { mutableStateOf(false) }
+    var showRecordingsDialog by remember { mutableStateOf(false) }
 
     if (nb == null) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -88,9 +132,46 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
         return
     }
 
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val started = vm.audioManager.startRecording(nb.id)
+            if (started) {
+                vm.message = "Ses kaydı başladı. Kalem çizimleri sesle senkronize ediliyor."
+            } else {
+                vm.message = "Ses kaydı başlatılamadı."
+            }
+        } else {
+            vm.message = "Ses kaydı için mikrofon izni gereklidir."
+        }
+    }
+
+    fun handleRecordClick() {
+        if (vm.audioManager.isRecording) {
+            val rec = vm.audioManager.stopRecording()
+            if (rec != null) {
+                vm.message = "Ses kaydı tamamlandı: ${rec.title}"
+            }
+        } else {
+            val perm = Manifest.permission.RECORD_AUDIO
+            if (ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED) {
+                val started = vm.audioManager.startRecording(nb.id)
+                if (started) {
+                    vm.message = "Ses kaydı başladı. Kalem çizimleri sesle senkronize ediliyor."
+                } else {
+                    vm.message = "Ses kaydı başlatılamadı."
+                }
+            } else {
+                audioPermissionLauncher.launch(perm)
+            }
+        }
+    }
+
     val tone = PaperTones[nb.paperTone.coerceIn(0, PaperTones.lastIndex)]
     val pageCount = if (nb.kind == NotebookKind.PDF) (vm.pdf?.pageCount ?: nb.pageCount) else nb.pageCount
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(listState, nb.id) {
         snapshotFlow { listState.firstVisibleItemIndex }.collect { vm.activePage = it }
@@ -99,26 +180,326 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
         vm.scrollRequest?.let { if (it in 0 until pageCount) { listState.scrollToItem(it); vm.scrollRequest = null } }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
-        AppBar(vm, nb, pageCount)
-        Box(Modifier.height(16.dp))
+    val screenPaddingHorizontal = if (vm.isFullScreen) 12.dp else 24.dp
+    val screenPaddingVertical = if (vm.isFullScreen) 8.dp else 16.dp
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = screenPaddingHorizontal, vertical = screenPaddingVertical)
+    ) {
+        AppBar(
+            vm = vm,
+            nb = nb,
+            pageCount = pageCount,
+            onOpenExport = { showExportDialog = true },
+            onToggleRecord = { handleRecordClick() },
+            onOpenRecordings = { showRecordingsDialog = true }
+        )
+
+        // Ses Kaydı Senkronize Replay Oynatıcı Çubuğu
+        AnimatedVisibility(
+            visible = vm.audioManager.isReplayMode,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Column {
+                Box(Modifier.height(8.dp))
+                AudioReplayBar(vm = vm)
+            }
+        }
+
+        Box(Modifier.height(if (vm.isFullScreen) 8.dp else 14.dp))
         Toolbar(vm, tone.third)
-        Box(Modifier.height(16.dp))
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            ThumbStrip(vm, nb, pageCount, tone.second, tone.third)
-            Box(Modifier.weight(1f).fillMaxHeight()) {
+        Box(Modifier.height(if (vm.isFullScreen) 8.dp else 14.dp))
+
+        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (!vm.isFullScreen) {
+                ThumbStrip(vm, nb, pageCount, tone.second, tone.third)
+            }
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                 if (nb.kind == NotebookKind.PDF && vm.pdfAspects == null) {
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 } else {
-                    LazyColumn(
-                        Modifier.fillMaxSize(), state = listState,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                    // Sayfa genişliği doğrudan zoom oranına göre ölçeklenir; suni graphicsLayer matris dönüşümü kullanılmaz.
+                    // Bu sayede InProgressStrokesView donanım önbelleği ile kalem ucu %100 birebir hizalanır (sıfır kayma, sıfır gecikme).
+                    val baseWidth = 920.dp.coerceAtMost(maxWidth - 32.dp)
+                    val effectiveWidth = baseWidth * vm.zoomScale
+
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .clipToBounds(),
+                        contentAlignment = Alignment.TopCenter
                     ) {
-                        items(pageCount, key = { "${nb.id}:$it" }) { i ->
-                            val aspect = if (nb.kind == NotebookKind.PDF) vm.pdfAspects?.getOrNull(i) ?: (1f / 1.4142f) else nb.paperSize.ratio
-                            PageItem(vm, nb, i, aspect, tone.second, tone.third)
+                        LazyColumn(
+                            Modifier
+                                .width(effectiveWidth)
+                                .offset { IntOffset(vm.panOffsetX.roundToInt(), 0) }
+                                .fillMaxHeight(),
+                            state = listState,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 8.dp,
+                                bottom = 32.dp
+                            )
+                        ) {
+                            items(pageCount, key = { "${nb.id}:$it" }) { i ->
+                                val aspect = if (nb.kind == NotebookKind.PDF) vm.pdfAspects?.getOrNull(i) ?: (1f / 1.4142f) else nb.paperSize.ratio
+                                PageItem(vm, nb, i, aspect, tone.second, tone.third)
+                            }
                         }
+                    }
+
+                    // Sağa kaydırma barı (FastScrollBar) - tutulup çekildikçe sayfaları anında kaydırır
+                    FastScrollBar(
+                        listState = listState,
+                        pageCount = pageCount,
+                        onScrollToPage = { target ->
+                            coroutineScope.launch { listState.scrollToItem(target) }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (showExportDialog) {
+        SaveToDeviceDialog(vm = vm, nb = nb, onDismiss = { showExportDialog = false })
+    }
+
+    if (showRecordingsDialog) {
+        AudioRecordingsDialog(
+            vm = vm,
+            nb = nb,
+            onDismiss = { showRecordingsDialog = false }
+        )
+    }
+}
+
+// ------------------------------------------------------------------ Ses Kaydı ve Senkronize Replay Çubuğu
+
+@Composable
+private fun AudioReplayBar(vm: AppViewModel) {
+    val cs = MaterialTheme.colorScheme
+    val am = vm.audioManager
+    val rec = am.activeRecording ?: return
+    val currentPos = am.playbackPositionMs
+    val totalDuration = am.playbackDurationMs.coerceAtLeast(1L)
+    val progress = (currentPos.toFloat() / totalDuration).coerceIn(0f, 1f)
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(4.dp, FullShape)
+            .background(cs.secondaryContainer, FullShape)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Sol başlık ve mod rozeti
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(32.dp).background(cs.primary, FullShape), contentAlignment = Alignment.Center) {
+                Sym("headphones", 18.dp, cs.onPrimary)
+            }
+            Column {
+                Text(rec.title, style = TS.labelMd, fontWeight = FontWeight.Bold, color = cs.onSecondaryContainer)
+                Text("Senkronize Çizim Replay", style = TS.labelSm, color = cs.onSecondaryContainer.copy(alpha = 0.7f), fontSize = 10.sp)
+            }
+        }
+
+        // Kontroller: Geri 10s, Oynat/Duraklat, İleri 10s
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconBtn("replay_10", box = 32.dp, icon = 18.dp, tint = cs.onSecondaryContainer) { am.skipBy(-10000L) }
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(FullShape)
+                    .background(cs.primary)
+                    .clickable { am.togglePlayPause() },
+                contentAlignment = Alignment.Center
+            ) {
+                Sym(if (am.isPlaying) "pause" else "play_arrow", 22.dp, cs.onPrimary)
+            }
+            IconBtn("forward_10", box = 32.dp, icon = 18.dp, tint = cs.onSecondaryContainer) { am.skipBy(10000L) }
+        }
+
+        // Zaman Sayacı
+        Text(
+            text = "${formatMs(currentPos)} / ${formatMs(totalDuration)}",
+            style = TS.labelSm,
+            fontWeight = FontWeight.SemiBold,
+            color = cs.onSecondaryContainer
+        )
+
+        // İlerleme Kaydırıcısı (Scrubber)
+        Slider(
+            value = progress,
+            onValueChange = { frac -> am.seekTo((frac * totalDuration).toLong()) },
+            modifier = Modifier.weight(1f)
+        )
+
+        // Hız seçici (1.0x, 1.25x, 1.5x, 2.0x)
+        val speeds = listOf(1.0f, 1.25f, 1.5f, 2.0f)
+        Box(
+            Modifier
+                .clip(FullShape)
+                .background(cs.surfaceContainerHighest)
+                .clickable {
+                    val nextIdx = (speeds.indexOf(am.playbackSpeed) + 1) % speeds.size
+                    am.setSpeed(speeds[nextIdx])
+                }
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "${am.playbackSpeed}x",
+                style = TS.labelSm,
+                fontWeight = FontWeight.Bold,
+                color = cs.onSurface
+            )
+        }
+
+        // Bilgi ipucu rozeti
+        Row(
+            Modifier
+                .background(cs.surfaceContainerHighest.copy(alpha = 0.6f), FullShape)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Sym("touch_app", 14.dp, cs.primary)
+            Text("Çizgiye dokun: sese atla", style = TS.labelSm, fontSize = 10.sp, color = cs.onSurfaceVariant)
+        }
+
+        // Kapat butonu
+        IconBtn("close", box = 30.dp, icon = 18.dp, tint = cs.onSecondaryContainer) {
+            am.closeReplay()
+        }
+    }
+}
+
+// ------------------------------------------------------------------ sağa kaydırma barı (FastScrollBar)
+
+@Composable
+private fun FastScrollBar(
+    listState: LazyListState,
+    pageCount: Int,
+    onScrollToPage: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (pageCount <= 1) return
+    val cs = MaterialTheme.colorScheme
+    var isDragging by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableFloatStateOf(0f) }
+
+    val currentScrollProgress by remember {
+        derivedStateOf {
+            val idx = listState.firstVisibleItemIndex
+            val offset = listState.firstVisibleItemScrollOffset
+            val itemSize = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 1000
+            val fraction = (idx + offset.toFloat() / max(1, itemSize)) / max(1, pageCount - 1)
+            fraction.coerceIn(0f, 1f)
+        }
+    }
+
+    val activeProgress = if (isDragging) dragProgress else currentScrollProgress
+    val displayedPage = (activeProgress * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(48.dp)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        val trackHeightPx = constraints.maxHeight.toFloat()
+        val thumbHeightDp = 52.dp
+        val thumbHeightPx = with(LocalDensity.current) { thumbHeightDp.toPx() }
+        val maxTravelPx = max(1f, trackHeightPx - thumbHeightPx)
+
+        // Dikey ray (Track)
+        Box(
+            Modifier
+                .width(6.dp)
+                .fillMaxHeight()
+                .clip(FullShape)
+                .background(if (isDragging) cs.primary.copy(alpha = 0.2f) else cs.surfaceContainerHighest.copy(alpha = 0.6f))
+                .pointerInput(pageCount, trackHeightPx) {
+                    detectTapGestures { offset ->
+                        val tapFraction = (offset.y / trackHeightPx).coerceIn(0f, 1f)
+                        val target = (tapFraction * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
+                        onScrollToPage(target)
+                    }
+                }
+        )
+
+        val thumbOffsetPx = (activeProgress * maxTravelPx).coerceIn(0f, maxTravelPx)
+
+        Box(
+            Modifier
+                .offset { IntOffset(0, thumbOffsetPx.roundToInt()) }
+                .pointerInput(pageCount, trackHeightPx) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            val initialFraction = ((thumbOffsetPx + offset.y - thumbHeightPx / 2f) / maxTravelPx).coerceIn(0f, 1f)
+                            dragProgress = initialFraction
+                            val target = (initialFraction * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
+                            onScrollToPage(target)
+                        },
+                        onDragEnd = { isDragging = false },
+                        onDragCancel = { isDragging = false },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val newPx = (dragProgress * maxTravelPx + dragAmount).coerceIn(0f, maxTravelPx)
+                            val newFraction = (newPx / maxTravelPx).coerceIn(0f, 1f)
+                            dragProgress = newFraction
+                            val target = (newFraction * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
+                            onScrollToPage(target)
+                        }
+                    )
+                }
+        ) {
+            Box(
+                Modifier
+                    .size(width = 24.dp, height = thumbHeightDp)
+                    .shadow(if (isDragging) 8.dp else 2.dp, FullShape)
+                    .clip(FullShape)
+                    .background(if (isDragging) cs.primary else cs.surfaceContainerHighest)
+                    .border(BorderStroke(1.5.dp, if (isDragging) cs.primary else cs.outlineVariant.copy(alpha = 0.6f)), FullShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Sym("unfold_more", 18.dp, if (isDragging) cs.onPrimary else cs.onSurfaceVariant)
+            }
+
+            if (isDragging) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .offset { IntOffset((-105).dp.roundToPx(), 0) }
+                        .shadow(6.dp, FullShape)
+                        .clip(FullShape)
+                        .background(cs.inverseSurface)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Sym("auto_stories", 15.dp, cs.inverseOnSurface)
+                        Text(
+                            text = "Sayfa ${displayedPage + 1} / $pageCount",
+                            color = cs.inverseOnSurface,
+                            style = TS.labelSm,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -126,26 +507,42 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------ üst bar
+// ------------------------------------------------------------------ üst bar (AppBar)
 
 @Composable
-private fun AppBar(vm: AppViewModel, nb: Notebook, pageCount: Int) {
+private fun AppBar(
+    vm: AppViewModel,
+    nb: Notebook,
+    pageCount: Int,
+    onOpenExport: () -> Unit,
+    onToggleRecord: () -> Unit,
+    onOpenRecordings: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
+    val am = vm.audioManager
     val saved = remember(nb.updatedAt) { SimpleDateFormat("HH:mm", Locale("tr")).format(Date(nb.updatedAt)) }
+
     Row(
-        Modifier.fillMaxWidth().shadow(1.dp, rr(32)).background(cs.surfaceContainerLow, rr(32)).padding(horizontal = 24.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .shadow(1.dp, rr(32))
+            .background(cs.surfaceContainerLow, rr(32))
+            .padding(horizontal = if (vm.isFullScreen) 14.dp else 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            IconBtn("arrow_back", icon = 22.dp) { vm.route = Route.LIBRARY }
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            IconBtn("arrow_back", icon = 22.dp) {
+                if (vm.isFullScreen) vm.isFullScreen = false
+                vm.route = Route.LIBRARY
+            }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Txt(nb.title, TS.titleMd, cs.onSurface, weight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                    Sym("bookmark", 20.dp, cs.tertiary, true)
+                    Sym("bookmark", 18.dp, cs.tertiary, true)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Sym("auto_stories", 14.dp, cs.secondary)
+                        Sym("auto_stories", 13.dp, cs.secondary)
                         Txt("Sayfa ${(vm.activePage + 1).coerceAtMost(pageCount)} / $pageCount", TS.labelSm, cs.secondary, weight = FontWeight.Medium)
                     }
                     Box(Modifier.size(4.dp).background(cs.outlineVariant, FullShape))
@@ -156,120 +553,858 @@ private fun AppBar(vm: AppViewModel, nb: Notebook, pageCount: Int) {
                 }
             }
         }
+
+        // Orta: Geri/İleri Al, Zoom Kontrolleri, Ses Kaydı Butonu, Tam Ekran
         Row(
-            Modifier.shadow(0.dp).background(cs.surfaceContainer, FullShape).padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.background(cs.surfaceContainer, FullShape).padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             IconBtn("undo", box = 32.dp, tint = if (vm.canUndo) cs.onSurface else cs.onSurface.copy(alpha = .35f)) { vm.undo() }
             IconBtn("redo", box = 32.dp, tint = if (vm.canRedo) cs.onSurface else cs.onSurface.copy(alpha = .35f)) { vm.redo() }
-            Box(Modifier.width(1.dp).height(20.dp).background(cs.outlineVariant))
-            Row(Modifier.background(cs.surfaceContainerLowest, FullShape).padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Sym("zoom_in", 16.dp, cs.secondary)
-                Txt(" %100", TS.labelMd, cs.onSurface, weight = FontWeight.SemiBold)
-            }
-            IconBtn("fullscreen", box = 32.dp, icon = 18.dp) { vm.message = "Tam ekran için sistem gezinme çubuğunu gizleyin." }
-        }
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(1.dp).height(18.dp).background(cs.outlineVariant))
+
+            // --- ZOOM KONTROLLERİ (Sayfaya Sığdır, %100, -, %, +) ---
             Row(
-                Modifier.tap(cs.secondaryContainer, FullShape) { vm.stylusOnly = !vm.stylusOnly }.padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier
+                    .background(cs.surfaceContainerLow, FullShape)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Sym("stylus", 16.dp, cs.onSecondaryContainer)
-                    Txt("Ink", TS.labelSm, cs.onSecondaryContainer, weight = FontWeight.SemiBold)
+                val isFit = kotlin.math.abs(vm.zoomScale - 1.0f) < 0.05f
+                // Sayfaya Sığdır butonu
+                Box(
+                    Modifier
+                        .clip(FullShape)
+                        .background(if (isFit) cs.primaryContainer else Color.Transparent)
+                        .clickable { vm.fitToPage() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Sym("fit_screen", 14.dp, if (isFit) cs.onPrimaryContainer else cs.onSurfaceVariant)
+                        Text(
+                            "Sayfaya Sığdır",
+                            style = TS.labelSm,
+                            fontWeight = if (isFit) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isFit) cs.onPrimaryContainer else cs.onSurfaceVariant
+                        )
+                    }
                 }
-                Box(Modifier.width(4.dp).height(12.dp).alpha(.4f).background(cs.secondary, FullShape))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Sym("touch_app", 14.dp, cs.onSecondaryContainer)
-                    Txt(if (vm.stylusOnly) "Palm Koruması" else "Parmakla Çiz", TS.labelSm, cs.onSecondaryContainer)
+
+                // %100 butonu
+                Box(
+                    Modifier
+                        .clip(FullShape)
+                        .background(if (isFit) cs.surfaceContainerHighest else Color.Transparent)
+                        .clickable { vm.setZoom100() }
+                        .padding(horizontal = 7.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "%100",
+                        style = TS.labelSm,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isFit) cs.primary else cs.onSurfaceVariant
+                    )
+                }
+
+                // Zoom Out (-)
+                IconBtn("remove", box = 26.dp, icon = 15.dp, tint = cs.onSurfaceVariant) {
+                    vm.zoomOut()
+                }
+
+                // Zoom Yüzde göstergesi (tıklanınca 100 -> 150 -> 200 -> 100)
+                Box(
+                    Modifier
+                        .clip(FullShape)
+                        .background(cs.surfaceContainerHigh)
+                        .clickable {
+                            val next = when {
+                                vm.zoomScale < 1.2f -> 1.5f
+                                vm.zoomScale < 1.8f -> 2.0f
+                                else -> 1.0f
+                            }
+                            vm.setZoom(next)
+                        }
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${(vm.zoomScale * 100).roundToInt()}%",
+                        style = TS.labelSm,
+                        fontWeight = FontWeight.Bold,
+                        color = cs.onSurface
+                    )
+                }
+
+                // Zoom In (+)
+                IconBtn("add", box = 26.dp, icon = 15.dp, tint = cs.onSurfaceVariant) {
+                    vm.zoomIn()
                 }
             }
-            IconBtn("grid_view", bg = cs.surfaceContainerHigh, tint = cs.onSurface) { vm.route = Route.PAGES }
+
+            Box(Modifier.width(1.dp).height(18.dp).background(cs.outlineVariant))
+
+            // --- SES KAYDI BUTONU ---
+            if (am.isRecording) {
+                Row(
+                    Modifier
+                        .shadow(2.dp, FullShape)
+                        .clip(FullShape)
+                        .background(Color(0xFFDC2626))
+                        .clickable { onToggleRecord() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(Modifier.size(10.dp).background(Color.White, FullShape))
+                    Text(
+                        text = formatMs(am.recordingDurationMs),
+                        style = TS.labelSm,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Sym("stop", 16.dp, Color.White)
+                }
+            } else {
+                Row(
+                    Modifier
+                        .clip(FullShape)
+                        .background(cs.surfaceContainerHighest)
+                        .clickable { onToggleRecord() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Sym("mic", 16.dp, cs.primary)
+                    Text("Ses Kaydet", style = TS.labelSm, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                }
+            }
+
+            // Ses Kayıtları Listesi Butonu
+            if (am.recordings.isNotEmpty()) {
+                Box(
+                    Modifier
+                        .clip(FullShape)
+                        .background(if (am.isReplayMode) cs.primaryContainer else cs.surfaceContainerHighest)
+                        .clickable { onOpenRecordings() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Sym("graphic_eq", 16.dp, if (am.isReplayMode) cs.onPrimaryContainer else cs.onSurfaceVariant)
+                        Text("${am.recordings.size}", style = TS.labelSm, fontWeight = FontWeight.Bold, color = if (am.isReplayMode) cs.onPrimaryContainer else cs.onSurfaceVariant)
+                    }
+                }
+            }
+
+            Box(Modifier.width(1.dp).height(18.dp).background(cs.outlineVariant))
+
+            // Tam ekran butonu
+            IconBtn(
+                name = if (vm.isFullScreen) "fullscreen_exit" else "fullscreen",
+                box = 34.dp,
+                icon = 20.dp,
+                bg = if (vm.isFullScreen) cs.primaryContainer else Color.Transparent,
+                tint = if (vm.isFullScreen) cs.onPrimaryContainer else cs.onSurfaceVariant
+            ) {
+                vm.toggleFullScreen()
+                vm.message = if (vm.isFullScreen) "Tam ekran modu açıldı" else "Tam ekran kapatıldı"
+            }
+        }
+
+        // Sağ: Stylus Koruması, Sayfalar, Cihaza Kaydet
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
             Row(
-                Modifier.shadow(1.dp, FullShape).tap(cs.primary, FullShape) { vm.message = "Dışa aktarma bir sonraki sürümde." }.padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.tap(if (vm.stylusOnly) cs.primaryContainer else cs.secondaryContainer, FullShape) {
+                    vm.stylusOnly = !vm.stylusOnly
+                }.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Sym("stylus", 16.dp, if (vm.stylusOnly) cs.onPrimaryContainer else cs.onSecondaryContainer)
+                Txt(if (vm.stylusOnly) "Yalnızca Kalem" else "Kalem & Parmak", TS.labelSm, if (vm.stylusOnly) cs.onPrimaryContainer else cs.onSecondaryContainer, weight = FontWeight.SemiBold)
+            }
+            IconBtn("grid_view", box = 36.dp, bg = cs.surfaceContainerHigh, tint = cs.onSurface) { vm.route = Route.PAGES }
+
+            // Cihaz belleğine kaydetme butonu
+            Row(
+                Modifier.shadow(2.dp, FullShape).tap(cs.primary, FullShape) { onOpenExport() }.padding(horizontal = 14.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Sym("ios_share", 18.dp, cs.onPrimary)
-                Txt("Dışa Aktar", TS.labelMd, cs.onPrimary)
+                Sym("save", 18.dp, cs.onPrimary)
+                Txt("Cihaza Kaydet", TS.labelMd, cs.onPrimary, weight = FontWeight.SemiBold)
             }
         }
     }
 }
 
-// ------------------------------------------------------------------ araç çubuğu
+// ------------------------------------------------------------------ Ses Kayıtları İletişim Kutusu
+
+@Composable
+private fun AudioRecordingsDialog(
+    vm: AppViewModel,
+    nb: Notebook,
+    onDismiss: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val am = vm.audioManager
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Sym("graphic_eq", 24.dp, cs.primary)
+                Text("Defter Ses Kayıtları", style = TS.titleMd, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Ses kaydını oynattığınızda, o esnada çizdiğiniz kalem çizgileri sesle senkronize şekilde ekranda belirecektir.",
+                    style = TS.bodySm,
+                    color = cs.onSurfaceVariant
+                )
+
+                if (am.recordings.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Text("Henüz ses kaydı yapılmamış.", style = TS.bodyMd, color = cs.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(Modifier.fillMaxWidth().height(260.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(am.recordings, key = { it.id }) { rec ->
+                            val isCurrent = am.activeRecording?.id == rec.id
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(rr(12))
+                                    .background(if (isCurrent) cs.primaryContainer.copy(alpha = 0.5f) else cs.surfaceContainer)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Box(
+                                        Modifier
+                                            .size(36.dp)
+                                            .clip(FullShape)
+                                            .background(if (isCurrent) cs.primary else cs.secondaryContainer)
+                                            .clickable {
+                                                am.startReplay(rec)
+                                                onDismiss()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Sym("play_arrow", 20.dp, if (isCurrent) cs.onPrimary else cs.onSecondaryContainer)
+                                    }
+                                    Column {
+                                        Text(rec.title, style = TS.labelMd, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                                        Text(
+                                            "${formatMs(rec.durationMs)} • ${SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr")).format(Date(rec.createdAt))}",
+                                            style = TS.labelSm,
+                                            color = cs.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Button(
+                                        onClick = {
+                                            am.startReplay(rec)
+                                            onDismiss()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = cs.primary),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Text("Replay", style = TS.labelSm)
+                                    }
+                                    IconBtn("delete", box = 34.dp, icon = 18.dp, tint = cs.error) {
+                                        am.deleteRecording(rec)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Kapat")
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------ zengin araç çubuğu (Toolbar)
 
 private val toolList = listOf(
-    Triple(Tool.PEN, "ink_pen", "Dolma Kalem"), Triple(Tool.BALL, "edit", "Tükenmez"), Triple(Tool.BRUSH, "brush", "Fırça"),
-    Triple(Tool.HIGHLIGHT, "highlight", "Fosforlu"), Triple(Tool.ERASER, "ink_eraser", "Silgi"), Triple(Tool.LASSO, "gesture", "Kement"),
-    Triple(Tool.SHAPE, "category", "Şekil"), Triple(Tool.TEXT, "title", "Metin"), Triple(Tool.STICKER, "sticky_note_2", "Çıkartma"),
+    Triple(Tool.PEN, "ink_pen", "Dolma Kalem"),
+    Triple(Tool.BALL, "edit", "Tükenmez"),
+    Triple(Tool.BRUSH, "brush", "Fırça"),
+    Triple(Tool.HIGHLIGHT, "highlight", "Fosforlu"),
+    Triple(Tool.ERASER, "ink_eraser", "Silgi"),
+    Triple(Tool.LASSO, "gesture", "Kement"),
 )
 
 @Composable
 private fun Toolbar(vm: AppViewModel, dark: Boolean) {
     val cs = MaterialTheme.colorScheme
-    var picker by remember { mutableStateOf(false) }
+    var showColorPicker by remember { mutableStateOf(false) }
+    var showWidthDialog by remember { mutableStateOf(false) }
+
     Row(
-        Modifier.fillMaxWidth().shadow(3.dp, FullShape).background(cs.surfaceContainer, FullShape).padding(8.dp).horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp),
+        Modifier
+            .fillMaxWidth()
+            .shadow(3.dp, FullShape)
+            .background(cs.surfaceContainer, FullShape)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // 1. Kalem ve Çizim Araçları
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
             toolList.forEach { (t, icon, label) ->
                 val active = vm.tool == t
                 Box(
-                    Modifier.size(if (active) 48.dp else 44.dp, 44.dp).tap(if (active) cs.secondaryContainer else Color.Transparent, FullShape) {
-                        vm.tool = t
-                        if (t == Tool.SHAPE || t == Tool.TEXT || t == Tool.STICKER) vm.message = "$label aracı bir sonraki sürümde."
-                    },
+                    Modifier
+                        .size(if (active) 46.dp else 42.dp, 40.dp)
+                        .tap(if (active) cs.secondaryContainer else Color.Transparent, FullShape) {
+                            vm.tool = t
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Sym(icon, 22.dp, if (active) cs.onSecondaryContainer else cs.onSurfaceVariant, active)
-                    if (active) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(10.dp, 4.dp).background(cs.primary, FullShape))
+                    Sym(icon, 20.dp, if (active) cs.onSecondaryContainer else cs.onSurfaceVariant, active)
+                    if (active) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp).size(8.dp, 3.dp).background(cs.primary, FullShape))
                 }
             }
         }
-        Row(Modifier.background(cs.surfaceContainerLow, FullShape).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf(6.dp, 10.dp, 16.dp).forEachIndexed { i, d ->
-                val active = vm.widthIdx == i
-                Box(Modifier.size(32.dp).tap(if (active) cs.surfaceContainerHighest else Color.Transparent, FullShape) { vm.widthIdx = i }, contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(d).background(if (active) cs.primary else cs.onSurface, FullShape))
+
+        Box(Modifier.width(1.dp).height(24.dp).background(cs.outlineVariant.copy(alpha = 0.5f)))
+
+        // 2. Çizgi Kalınlığı (Stroke Width) Seçici ve Ayarlayıcı
+        Row(
+            Modifier
+                .background(cs.surfaceContainerLow, FullShape)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                Modifier
+                    .tap(cs.surfaceContainerHighest, FullShape) { showWidthDialog = true }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(Modifier.size((vm.strokeWidthDp * 2.2f).coerceIn(4f, 16f).dp).background(cs.primary, FullShape))
+                Text(
+                    text = String.format(Locale.US, "%.1f", vm.strokeWidthDp) + " dp",
+                    style = TS.labelSm,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cs.onSurface
+                )
+                Sym("tune", 14.dp, cs.onSurfaceVariant)
+            }
+
+            vm.widthsDp.forEachIndexed { i, w ->
+                val active = vm.widthIdx == i || kotlin.math.abs(vm.strokeWidthDp - w) < 0.2f
+                val dotSize = when (i) {
+                    0 -> 5.dp
+                    1 -> 8.dp
+                    2 -> 11.dp
+                    3 -> 14.dp
+                    else -> 17.dp
+                }
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .tap(if (active) cs.surfaceContainerHighest else Color.Transparent, FullShape) {
+                            vm.selectWidthPreset(i)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(Modifier.size(dotSize).background(if (active) cs.primary else cs.onSurfaceVariant, FullShape))
                 }
             }
         }
-        Row(Modifier.background(cs.surfaceContainerLow, FullShape).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            vm.inkColors.forEachIndexed { i, c ->
+
+        Box(Modifier.width(1.dp).height(24.dp).background(cs.outlineVariant.copy(alpha = 0.5f)))
+
+        // 3. Mürekkep Renk Paleti ve Canlı Seçici
+        Row(
+            Modifier
+                .background(cs.surfaceContainerLow, FullShape)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            vm.inkColors.take(8).forEachIndexed { i, c ->
                 val shown = if (i == 0 && dark) 0xFFF4EFF7.toInt() else c
                 val active = vm.colorIdx == i
                 Box(
-                    Modifier.size(if (active) 28.dp else 24.dp).scale(if (active) 1.1f else 1f)
-                        .then(if (active) Modifier.border(BorderStroke(2.dp, cs.primary), FullShape).padding(3.dp) else Modifier)
-                        .background(Color(shown), FullShape).clickable { vm.colorIdx = i },
+                    Modifier
+                        .size(if (active) 26.dp else 22.dp)
+                        .scale(if (active) 1.15f else 1f)
+                        .then(if (active) Modifier.border(BorderStroke(2.dp, cs.primary), FullShape).padding(2.dp) else Modifier)
+                        .background(Color(shown), FullShape)
+                        .clickable { vm.selectColor(c) }
                 )
             }
-            IconBtn("palette", box = 28.dp, icon = 20.dp) { picker = true }
+            IconBtn("palette", box = 28.dp, icon = 18.dp, bg = cs.surfaceContainerHighest) { showColorPicker = true }
         }
     }
-    if (picker) ColorPickerDialog({ picker = false }) { c -> vm.inkColors[vm.colorIdx] = c; picker = false }
+
+    if (showColorPicker) {
+        EnhancedColorPickerDialog(
+            currentColor = vm.inkColors.getOrNull(vm.colorIdx) ?: 0xFF1C1B1F.toInt(),
+            strokeWidthDp = vm.strokeWidthDp,
+            tool = vm.tool,
+            onDismiss = { showColorPicker = false },
+            onPick = { c ->
+                vm.selectColor(c)
+                showColorPicker = false
+            }
+        )
+    }
+
+    if (showWidthDialog) {
+        StrokeWidthDialog(
+            currentWidth = vm.strokeWidthDp,
+            currentColor = vm.inkColors.getOrNull(vm.colorIdx) ?: 0xFF1C1B1F.toInt(),
+            tool = vm.tool,
+            onDismiss = { showWidthDialog = false },
+            onApply = { w ->
+                vm.setStrokeWidth(w)
+                showWidthDialog = false
+            }
+        )
+    }
 }
 
-private val extraColors = listOf(
-    0xFF000000, 0xFF424242, 0xFF9E9E9E, 0xFFFFFFFF, 0xFFD32F2F, 0xFFE64A19, 0xFFF57C00, 0xFFFBC02D,
-    0xFF388E3C, 0xFF00796B, 0xFF0288D1, 0xFF1976D2, 0xFF303F9F, 0xFF7B1FA2, 0xFFC2185B, 0xFF795548,
-).map { it.toInt() }
+// ------------------------------------------------------------------ çizgi kalınlığı ayar iletişim kutusu
 
 @Composable
-private fun ColorPickerDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+private fun StrokeWidthDialog(
+    currentWidth: Float,
+    currentColor: Int,
+    tool: Tool,
+    onDismiss: () -> Unit,
+    onApply: (Float) -> Unit,
+) {
+    var widthVal by remember { mutableFloatStateOf(currentWidth) }
+    val cs = MaterialTheme.colorScheme
+
     AlertDialog(
-        onDismissRequest = onDismiss, title = { Text("Renk Seç") },
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Sym("line_weight", 24.dp, cs.primary)
+                Text("Kalem Ucu ve Çizgi Kalınlığı", style = TS.titleMd, fontWeight = FontWeight.SemiBold)
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                extraColors.chunked(8).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { c -> Box(Modifier.size(32.dp).border(1.dp, Color(0x33000000), FullShape).background(Color(c), FullShape).clickable { onPick(c) }) }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Kalemin hassas genişliğini ayarlayın veya önayarlardan birini seçin.",
+                    style = TS.bodyMd,
+                    color = cs.onSurfaceVariant
+                )
+
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .clip(rr(12))
+                        .background(cs.surfaceContainerHighest)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    InkStrokePreview(
+                        widthDp = widthVal,
+                        colorArgb = currentColor,
+                        tool = tool,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Çizgi Genişliği", style = TS.labelMd, color = cs.onSurface)
+                        Text(
+                            String.format(Locale.US, "%.1f dp", widthVal),
+                            style = TS.titleMd,
+                            fontWeight = FontWeight.Bold,
+                            color = cs.primary
+                        )
+                    }
+                    Slider(
+                        value = widthVal,
+                        onValueChange = { widthVal = it },
+                        valueRange = 0.5f..16f,
+                        steps = 30,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Text("Hızlı Kalınlık Seçenekleri", style = TS.labelSm, color = cs.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        0.8f to "İnce",
+                        1.4f to "Normal",
+                        2.4f to "Orta",
+                        4.0f to "Kalın",
+                        6.5f to "Fırça"
+                    ).forEach { (w, label) ->
+                        val selected = kotlin.math.abs(widthVal - w) < 0.2f
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(rr(8))
+                                .background(if (selected) cs.primaryContainer else cs.surfaceContainer)
+                                .clickable { widthVal = w }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(Modifier.size((w * 2f).coerceIn(4f, 14f).dp).background(if (selected) cs.primary else cs.onSurface, FullShape))
+                                Text(label, style = TS.labelSm, color = if (selected) cs.onPrimaryContainer else cs.onSurface, fontSize = 10.sp)
+                            }
+                        }
                     }
                 }
             }
         },
-        confirmButton = {}, dismissButton = { TextButton(onDismiss) { Text("Kapat") } },
+        confirmButton = {
+            Button(onClick = { onApply(widthVal) }) {
+                Text("Uygula")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("İptal")
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------ canlı çizgi önizleme
+
+@Composable
+private fun InkStrokePreview(
+    widthDp: Float,
+    colorArgb: Int,
+    tool: Tool,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidthPx = widthDp * density
+        val path = Path().apply {
+            moveTo(w * 0.1f, h * 0.5f)
+            cubicTo(w * 0.35f, h * 0.15f, w * 0.65f, h * 0.85f, w * 0.9f, h * 0.5f)
+        }
+        val alpha = if (tool == Tool.HIGHLIGHT) 0.45f else 1.0f
+        val color = Color(colorArgb).copy(alpha = alpha)
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+}
+
+// ------------------------------------------------------------------ gelişmiş renk seçici
+
+private val paletteCategories = listOf(
+    "Temel & Not Alma" to listOf(
+        0xFF1C1B1F, 0xFF424242, 0xFF616161, 0xFF9E9E9E, 0xFFE0E0E0, 0xFFFFFFFF,
+    ),
+    "Mavi & İndigo" to listOf(
+        0xFF1E3A8A, 0xFF1976D2, 0xFF4F55C4, 0xFF0288D1, 0xFF00ACC1, 0xFF303F9F,
+    ),
+    "Doğa & Zümrüt" to listOf(
+        0xFF0D9488, 0xFF00796B, 0xFF2E6B56, 0xFF388E3C, 0xFF689F38, 0xFF8BC34A,
+    ),
+    "Sıcak & Vurgu" to listOf(
+        0xFFD97706, 0xFFF57C00, 0xFFFBC02D, 0xFFDC2626, 0xFFD32F2F, 0xFFE64A19,
+    ),
+    "Pastel & Mor" to listOf(
+        0xFF7C3AED, 0xFF7B1FA2, 0xFFC2185B, 0xFF8D6E63, 0xFF795548, 0xFF455A64,
+    ),
+)
+
+@Composable
+private fun EnhancedColorPickerDialog(
+    currentColor: Int,
+    strokeWidthDp: Float,
+    tool: Tool,
+    onDismiss: () -> Unit,
+    onPick: (Int) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    var selectedColor by remember { mutableStateOf(currentColor) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Sym("palette", 24.dp, cs.primary)
+                Text("Mürekkep Rengi Seç", style = TS.titleMd, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .clip(rr(12))
+                        .background(cs.surfaceContainerHighest)
+                        .padding(6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    InkStrokePreview(
+                        widthDp = strokeWidthDp,
+                        colorArgb = selectedColor,
+                        tool = tool,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    paletteCategories.forEach { (categoryName, colors) ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(categoryName, style = TS.labelSm, color = cs.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                colors.forEach { rawColor ->
+                                    val c = rawColor.toInt()
+                                    val isCurrent = c == selectedColor
+                                    Box(
+                                        Modifier
+                                            .size(34.dp)
+                                            .scale(if (isCurrent) 1.15f else 1f)
+                                            .clip(FullShape)
+                                            .background(Color(c))
+                                            .border(
+                                                BorderStroke(
+                                                    if (isCurrent) 3.dp else 1.dp,
+                                                    if (isCurrent) cs.primary else Color(0x33000000)
+                                                ),
+                                                FullShape
+                                            )
+                                            .clickable { selectedColor = c },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isCurrent) {
+                                            Sym("check", 18.dp, if (c == 0xFFFFFFFF.toInt()) Color.Black else Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onPick(selectedColor) }) {
+                Text("Seç")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("İptal")
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------ cihaz belleğine kaydetme iletişim kutusu
+
+@Composable
+private fun SaveToDeviceDialog(
+    vm: AppViewModel,
+    nb: Notebook,
+    onDismiss: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val result = vm.exportResult
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!vm.isExporting) {
+                vm.clearExportResult()
+                onDismiss()
+            }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Sym("folder_special", 24.dp, cs.primary)
+                Text("Cihaz Belleğine Kaydet", style = TS.titleMd, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (vm.isExporting) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(color = cs.primary)
+                        Text(
+                            text = if (vm.exportProgress.second > 0)
+                                "Sayfalar ve çizimler işleniyor: ${vm.exportProgress.first} / ${vm.exportProgress.second}"
+                            else
+                                "Dosya hazırlanıyor ve cihaz belleğine aktarılıyor…",
+                            style = TS.bodyMd,
+                            color = cs.onSurface
+                        )
+                        if (vm.exportProgress.second > 0) {
+                            LinearProgressIndicator(
+                                progress = { vm.exportProgress.first.toFloat() / max(1, vm.exportProgress.second) },
+                                modifier = Modifier.fillMaxWidth().clip(FullShape)
+                            )
+                        }
+                    }
+                } else if (result != null) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(rr(12))
+                            .background(cs.primaryContainer.copy(alpha = 0.4f))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Sym("check_circle", 24.dp, cs.primary)
+                            Text("Başarıyla Kaydedildi!", style = TS.titleSm, fontWeight = FontWeight.Bold, color = cs.onSurface)
+                        }
+                        Text(
+                            text = "Dosya cihazınızın 'İndirilenler (Downloads/InkNote)' klasörüne kaydedildi:\n${result.fileName}",
+                            style = TS.bodySm,
+                            color = cs.onSurfaceVariant
+                        )
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        result.uri?.let { uri ->
+                            Button(
+                                onClick = { Exporter.openExportedFile(context, uri, result.mimeType) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Sym("visibility", 18.dp, cs.onPrimary)
+                                Text(" Dosyayı Aç")
+                            }
+                            OutlinedButton(
+                                onClick = { Exporter.shareExportedFile(context, uri, result.mimeType) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Sym("share", 18.dp, cs.primary)
+                                Text(" Paylaş")
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Defterinizi cihaz belleğine (Downloads klasörüne) kaydedin. Çizimleriniz tam vektör kalitesinde korunur.",
+                        style = TS.bodyMd,
+                        color = cs.onSurfaceVariant
+                    )
+
+                    // 1. PDF Olarak Kaydet (Birincil)
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(rr(12))
+                            .background(cs.surfaceContainerHigh)
+                            .clickable { vm.exportPdf() }
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(40.dp).background(cs.primary, FullShape), contentAlignment = Alignment.Center) {
+                                Sym("picture_as_pdf", 22.dp, cs.onPrimary)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("PDF Olarak Kaydet (Tavsiye Edilen)", style = TS.labelLg, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                                Text("Tüm sayfalar ve kalem çizimleri vektör formatında PDF'e aktarılır.", style = TS.bodySm, color = cs.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    // 2. Mevcut Sayfayı PNG Görsel Olarak Kaydet
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(rr(12))
+                            .background(cs.surfaceContainer)
+                            .clickable { vm.exportPageImage(vm.activePage) }
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(40.dp).background(cs.secondaryContainer, FullShape), contentAlignment = Alignment.Center) {
+                                Sym("image", 22.dp, cs.onSecondaryContainer)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("Mevcut Sayfayı Görsel Olarak Kaydet", style = TS.labelLg, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                                Text("Sayfa ${vm.activePage + 1} yüksek çözünürlüklü PNG resmi olarak kaydedilir.", style = TS.bodySm, color = cs.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    // 3. InkNote Proje Yedeği (.inknote)
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(rr(12))
+                            .background(cs.surfaceContainer)
+                            .clickable { vm.exportBackup() }
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(40.dp).background(cs.tertiaryContainer, FullShape), contentAlignment = Alignment.Center) {
+                                Sym("backup", 22.dp, cs.onTertiaryContainer)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("InkNote Proje Yedeği (.inknote)", style = TS.labelLg, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                                Text("Tüm ham vuruş verilerini cihazda yedekler.", style = TS.bodySm, color = cs.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (result != null) {
+                Button(onClick = {
+                    vm.clearExportResult()
+                    onDismiss()
+                }) {
+                    Text("Tamam")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    vm.clearExportResult()
+                    onDismiss()
+                },
+                enabled = !vm.isExporting
+            ) {
+                Text(if (result != null) "Kapat" else "İptal")
+            }
+        }
     )
 }
 
@@ -279,7 +1414,12 @@ private fun ColorPickerDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
 private fun ThumbStrip(vm: AppViewModel, nb: Notebook, pageCount: Int, toneArgb: Int, dark: Boolean) {
     val cs = MaterialTheme.colorScheme
     Column(
-        Modifier.width(128.dp).fillMaxHeight().shadow(1.dp, rr(32)).background(cs.surfaceContainerLow, rr(32)).padding(vertical = 12.dp, horizontal = 8.dp),
+        Modifier
+            .width(120.dp)
+            .fillMaxHeight()
+            .shadow(1.dp, rr(32))
+            .background(cs.surfaceContainerLow, rr(32))
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -322,47 +1462,64 @@ private fun ThumbStrip(vm: AppViewModel, nb: Notebook, pageCount: Int, toneArgb:
 
 @Composable
 private fun PageItem(vm: AppViewModel, nb: Notebook, index: Int, aspect: Float, toneArgb: Int, dark: Boolean) {
-    val cs = MaterialTheme.colorScheme
     LaunchedEffect(nb.id, index) { vm.ensurePage(index) }
-    val data = vm.pageData[index]
+    // Sayfa verisi boş olsa dahi InkLayer anında monte edilir, böylece sonraki sayfaya geçerken donma/kasılma yaşanmaz
+    val data = vm.pageData[index] ?: emptyList()
     val isPdf = nb.kind == NotebookKind.PDF
     val shape = if (isPdf) rr(6) else rr(32)
 
-    BoxWithConstraints(Modifier.widthIn(max = 920.dp).fillMaxWidth()) {
-        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }.roundToInt()
+    Box(
+        Modifier.fillMaxWidth()
+    ) {
         Box(Modifier.fillMaxWidth().aspectRatio(aspect).shadow(4.dp, shape).clip(shape).background(Color(if (isPdf) 0xFFFFFFFF.toInt() else toneArgb))) {
             if (isPdf) {
                 val pdf = vm.pdf
-                val bmp by produceState<Bitmap?>(null, pdf, index, widthPx) { value = pdf?.render(index, (widthPx * 1.5f).roundToInt()) }
+                // Sabit yüksek çözünürlük: Zoom sırasında bitmap sürekli yeniden render edilmez, donma/çökme yaşanmaz
+                val bmp by produceState<Bitmap?>(null, pdf, index) { value = pdf?.render(index, 1440) }
                 val b = bmp
                 if (b != null) Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                 else CircularProgressIndicator(Modifier.align(Alignment.Center).size(32.dp))
             } else {
                 PaperCanvas(nb.templateOf(index), dark, Modifier.fillMaxSize())
             }
-            if (data != null) InkLayer(vm, index, data, dark)
+            // InkLayer her zaman hazırdır, gecikme olmadan kalem vuruşlarını karşılar
+            InkLayer(vm, index, aspect, data, dark)
         }
     }
 }
 
 @Composable
-private fun InkLayer(vm: AppViewModel, index: Int, data: List<StrokeData>, dark: Boolean) {
+private fun InkLayer(vm: AppViewModel, index: Int, aspect: Float, data: List<StrokeData>, dark: Boolean) {
     val cs = MaterialTheme.colorScheme
     val holder = remember { ViewHolder() }
     var sel by remember { mutableStateOf<RectF?>(null) }
+    val am = vm.audioManager
+    val replayTime = if (am.isReplayMode) am.playbackPositionMs else null
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx -> InkPageView(ctx).also { holder.v = it } },
             modifier = Modifier.fillMaxSize(),
             update = { v ->
+                v.pageAspect = aspect
                 v.listener = object : InkPageView.Listener {
                     override fun onChanged(before: List<StrokeData>, after: List<StrokeData>) { vm.commit(index, before, after) }
                     override fun onSelection(bounds: RectF?) { sel = bounds?.let { RectF(it) } }
                 }
+                // İki parmakla kıstırma ve kaydırma (pinch-to-zoom & pan)
+                v.onTwoFingerTransform = { factor, panX, panY ->
+                    vm.applyZoomAndPan(factor, panX, panY)
+                }
+                // Ses kaydı esnasında kalemin zamanını senkronize et
+                v.audioOffsetProvider = { am.currentAudioOffsetMs() }
+                // Replay esnasında ses zamanına göre vuruşları açığa çıkar
+                v.replayMaxTimeMs = replayTime
+                // Çizgiye dokunulduğunda seste o ana atla
+                v.onSeekAudioTo = { targetMs -> am.seekTo(targetMs) }
+
                 v.tool = vm.tool
                 v.colorArgb = if (vm.colorIdx == 0 && dark) 0xFFF4EFF7.toInt() else vm.inkColors[vm.colorIdx.coerceIn(0, vm.inkColors.lastIndex)]
-                v.widthDp = vm.widthsDp[vm.widthIdx.coerceIn(0, 2)]
+                v.widthDp = vm.strokeWidthDp
                 v.stylusOnly = vm.stylusOnly
                 v.setData(data)
             },

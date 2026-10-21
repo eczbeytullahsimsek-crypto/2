@@ -64,7 +64,13 @@ class PdfDoc(file: File) : Closeable {
                     cache.put(key, bmp)
                     bmp
                 }
-            }.getOrNull()
+            }.getOrElse { err ->
+                if (err is OutOfMemoryError) {
+                    cache.evictAll()
+                    System.gc()
+                }
+                null
+            }
         }
     }
 

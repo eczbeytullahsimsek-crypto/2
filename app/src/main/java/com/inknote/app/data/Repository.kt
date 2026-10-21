@@ -68,7 +68,32 @@ class Repository(private val ctx: Context) {
         if (!tmp.renameTo(f)) { f.writeText(StrokeCodec.encode(list)); tmp.delete() }
     }
 
-    fun deleteNotebookFiles(id: String) { dir(id).deleteRecursively() }
+    fun deleteNotebookFiles(id: String) {
+        dir(id).deleteRecursively()
+        File(ctx.filesDir, "audio_nb_$id").deleteRecursively()
+    }
+
+    // ---------------------------------------------------------------- ses kayıtları
+
+    private fun audioIndexFile(id: String) = File(dir(id), "recordings.json")
+
+    fun loadAudioRecordings(notebookId: String): List<AudioRecording> {
+        val f = audioIndexFile(notebookId)
+        if (!f.exists()) return emptyList()
+        return runCatching {
+            val arr = JSONArray(f.readText())
+            (0 until arr.length()).map { AudioRecording.fromJson(arr.getJSONObject(it)) }
+        }.getOrElse { emptyList() }
+    }
+
+    fun saveAudioRecordings(notebookId: String, list: List<AudioRecording>) {
+        val f = audioIndexFile(notebookId)
+        val arr = JSONArray()
+        list.forEach { arr.put(it.toJson()) }
+        val tmp = File(dir(notebookId), "recordings.json.tmp")
+        tmp.writeText(arr.toString())
+        if (!tmp.renameTo(f)) { f.writeText(arr.toString()); tmp.delete() }
+    }
 
     // ---------------------------------------------------------------- PDF
 

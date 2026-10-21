@@ -108,11 +108,17 @@ fun hasStylus(): Boolean = remember {
 @Composable
 fun Shell(vm: AppViewModel, content: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxSize().background(cs.background)) {
-        Sidebar(vm)
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            TopBar()
-            Box(Modifier.weight(1f).fillMaxWidth().background(cs.background)) { content() }
+    if (vm.isFullScreen && vm.route == Route.CANVAS) {
+        Box(Modifier.fillMaxSize().background(cs.background)) {
+            content()
+        }
+    } else {
+        Row(Modifier.fillMaxSize().background(cs.background)) {
+            Sidebar(vm)
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                TopBar()
+                Box(Modifier.weight(1f).fillMaxWidth().background(cs.background)) { content() }
+            }
         }
     }
 }

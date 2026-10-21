@@ -47,8 +47,26 @@ private fun App(vm: AppViewModel) {
     LaunchedEffect(vm.message) {
         vm.message?.let { snack.showSnackbar(it); vm.message = null }
     }
-    BackHandler(enabled = vm.route != Route.LIBRARY) {
-        vm.route = if (vm.route == Route.PAGES) Route.CANVAS else Route.LIBRARY
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? ComponentActivity
+    LaunchedEffect(vm.isFullScreen) {
+        activity?.window?.let { win ->
+            val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+            if (vm.isFullScreen) {
+                insetsController.systemBarsBehavior =
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+    BackHandler(enabled = vm.isFullScreen || vm.route != Route.LIBRARY) {
+        if (vm.isFullScreen) {
+            vm.isFullScreen = false
+        } else {
+            vm.route = if (vm.route == Route.PAGES) Route.CANVAS else Route.LIBRARY
+        }
     }
     Box(Modifier.fillMaxSize()) {
         Shell(vm) {

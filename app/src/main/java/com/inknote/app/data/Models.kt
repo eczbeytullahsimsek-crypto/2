@@ -100,7 +100,37 @@ class StrokeData(
     val size: Float,
     val tool: Int,         // 0 stylus, 1 touch, 2 mouse
     val pts: List<Pt>,
+    val timeOffsetMs: Long = 0L, // Ses kaydının başlangıcına göre zaman (ms)
 )
+
+data class AudioRecording(
+    val id: String,
+    val notebookId: String,
+    val title: String,
+    val filePath: String,
+    val createdAt: Long,
+    val durationMs: Long,
+) {
+    fun toJson(): org.json.JSONObject = org.json.JSONObject().apply {
+        put("id", id)
+        put("notebookId", notebookId)
+        put("title", title)
+        put("filePath", filePath)
+        put("createdAt", createdAt)
+        put("durationMs", durationMs)
+    }
+
+    companion object {
+        fun fromJson(o: org.json.JSONObject): AudioRecording = AudioRecording(
+            id = o.getString("id"),
+            notebookId = o.getString("notebookId"),
+            title = o.optString("title", "Ses Kaydı"),
+            filePath = o.getString("filePath"),
+            createdAt = o.optLong("createdAt", System.currentTimeMillis()),
+            durationMs = o.optLong("durationMs", 0L),
+        )
+    }
+}
 
 object StrokeCodec {
     fun encode(list: List<StrokeData>): String {
@@ -108,6 +138,7 @@ object StrokeCodec {
         list.forEach { s ->
             val o = JSONObject()
             o.put("k", s.kind); o.put("c", s.argb); o.put("s", s.size.toDouble()); o.put("tool", s.tool)
+            if (s.timeOffsetMs > 0L) o.put("tm", s.timeOffsetMs)
             val p = JSONArray()
             s.pts.forEach { pt ->
                 p.put(pt.x.toDouble()); p.put(pt.y.toDouble()); p.put(pt.t); p.put(pt.p.toDouble())
@@ -123,6 +154,7 @@ object StrokeCodec {
         val arr = JSONArray(text)
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
+            val tm = o.optLong("tm", 0L)
             val p = o.getJSONArray("p")
             val pts = ArrayList<Pt>(p.length() / 4)
             var j = 0
@@ -130,7 +162,7 @@ object StrokeCodec {
                 pts.add(Pt(p.getDouble(j).toFloat(), p.getDouble(j + 1).toFloat(), p.getLong(j + 2), p.getDouble(j + 3).toFloat()))
                 j += 4
             }
-            if (pts.isNotEmpty()) out.add(StrokeData(o.getString("k"), o.getInt("c"), o.getDouble("s").toFloat(), o.optInt("tool"), pts))
+            if (pts.isNotEmpty()) out.add(StrokeData(o.getString("k"), o.getInt("c"), o.getDouble("s").toFloat(), o.optInt("tool"), pts, tm))
         }
         return out
     }

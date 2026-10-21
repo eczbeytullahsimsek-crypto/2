@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.inknote.app.AppViewModel
 import com.inknote.app.data.Folder
 import com.inknote.app.data.Notebook
@@ -113,43 +114,49 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
         .let { if (chip == Chip.RECENT) it.take(6) else it }
     val recent = all.filter { !it.trashed }.sortedByDescending { it.updatedAt }.take(3)
 
-    Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        // ------------------------------------------------ sol panel
-        Column(Modifier.width(288.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        // ------------------------------------------------ sol panel (derli toplu, kompakt klasörler)
+        Column(Modifier.width(220.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            // Yeni Defter + Hızlı Butonlar
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
-                    Modifier.fillMaxWidth().height(56.dp).shadow(8.dp, FullShape, spotColor = cs.primary.copy(alpha = .3f))
-                        .tap(cs.primary, FullShape) { newDialog = true }.padding(horizontal = 24.dp),
+                    Modifier.fillMaxWidth().height(46.dp).shadow(2.dp, FullShape, spotColor = cs.primary.copy(alpha = .25f))
+                        .tap(cs.primary, FullShape) { newDialog = true }.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Sym("edit_square", 24.dp, cs.onPrimary)
-                        Txt("Yeni Defter", TS.labelLg, cs.onPrimary, weight = FontWeight.Medium)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Sym("edit_square", 20.dp, cs.onPrimary)
+                        Txt("Yeni Defter", TS.labelMd, cs.onPrimary, weight = FontWeight.SemiBold)
                     }
-                    Sym("add", 20.dp, cs.onPrimary.copy(alpha = .7f))
+                    Sym("add", 18.dp, cs.onPrimary.copy(alpha = .8f))
                 }
-                Row(
-                    Modifier.fillMaxWidth().height(44.dp).tap(cs.surfaceContainerHigh, FullShape) {
-                        vm.createNotebook("Hızlı Not")
-                    }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-                ) {
-                    Sym("draw", 18.dp, cs.primary)
-                    Txt("  Hızlı Not Karala", TS.labelMd, cs.onSurface, weight = FontWeight.Medium)
-                }
-                Row(
-                    Modifier.fillMaxWidth().height(44.dp).tap(cs.surfaceContainerHigh, FullShape, onPickPdf),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-                ) {
-                    Sym("picture_as_pdf", 18.dp, cs.error)
-                    Txt("  PDF İçe Aktar", TS.labelMd, cs.onSurface, weight = FontWeight.Medium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.weight(1f).height(38.dp).tap(cs.surfaceContainerHigh, FullShape) {
+                            vm.createNotebook("Hızlı Not")
+                        }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Sym("draw", 16.dp, cs.primary)
+                        Txt(" Hızlı Not", TS.labelSm, cs.onSurface, weight = FontWeight.Medium)
+                    }
+                    Row(
+                        Modifier.weight(1f).height(38.dp).tap(cs.surfaceContainerHigh, FullShape, onPickPdf),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Sym("picture_as_pdf", 16.dp, cs.error)
+                        Txt(" PDF", TS.labelSm, cs.onSurface, weight = FontWeight.Medium)
+                    }
                 }
             }
 
             // klasörler
-            Column(Modifier.fillMaxWidth().shadow(1.dp, rr(16)).background(cs.surfaceContainerLow, rr(16)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.fillMaxWidth().shadow(1.dp, rr(16)).background(cs.surfaceContainerLow, rr(16)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Txt("KLASÖRLER", TS.labelSm, cs.secondary, weight = FontWeight.SemiBold)
-                    IconBtn("create_new_folder", box = 28.dp, icon = 18.dp, tint = cs.secondary) { vm.message = "Klasörler sabit: yeni klasör yakında." }
+                    IconBtn("create_new_folder", box = 26.dp, icon = 16.dp, tint = cs.secondary) { vm.message = "Klasörler sabit: yeni klasör yakında." }
                 }
                 val live = all.filter { !it.trashed }
                 FolderRow("folder_special", "Tüm Notlar", live.size, sel == "ALL", cs.onSecondaryContainer, true) { sel = "ALL" }
@@ -160,52 +167,44 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
                 FolderRow("delete", "Çöp Kutusu", all.count { it.trashed }, sel == "TRASH", cs.onSurfaceVariant) { sel = "TRASH" }
             }
 
-            // bulut kartı
-            Column(Modifier.fillMaxWidth().shadow(1.dp, rr(16)).background(cs.surfaceContainerLow, rr(16)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Sym("cloud_sync", 20.dp, cs.primary)
-                        Txt("Samsung Cloud & Drive", TS.titleSm, cs.onSurface)
-                    }
-                    Box(Modifier.size(10.dp).background(cs.secondary, FullShape))
-                }
-                Box(Modifier.fillMaxWidth().height(8.dp).clip(FullShape).background(cs.surfaceContainerHighest)) {
-                    Box(Modifier.fillMaxWidth(0.68f).fillMaxHeight().background(cs.primary, FullShape))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Txt("10.2 GB / 15 GB", TS.labelSm, cs.onSurfaceVariant)
-                    Txt("Son Senk: 2 dk önce", TS.labelSm, cs.primary, weight = FontWeight.SemiBold)
-                }
+            // Altta zarif, sade durum bilgisi
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Sym("cloud_done", 14.dp, cs.primary)
+                Txt("Tüm notlar güvende", TS.labelSm, cs.onSurfaceVariant)
             }
         }
 
-        // ------------------------------------------------ sağ bölüm
-        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        // ------------------------------------------------ sağ bölüm (derli toplu defterler)
+        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             // arama + görünüm + sıralama
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(
-                    Modifier.weight(1f).widthIn(max = 672.dp).height(48.dp).tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    Modifier.weight(1f).widthIn(max = 600.dp).height(44.dp).tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Sym("search", 20.dp, cs.onSurfaceVariant)
+                    Sym("search", 18.dp, cs.onSurfaceVariant)
                     Box(Modifier.weight(1f)) {
-                        if (query.isEmpty()) Txt("Defterler, etiketler veya el yazısında ara...", TS.bodyMd, cs.onSurfaceVariant, maxLines = 1)
+                        if (query.isEmpty()) Txt("Defterler veya el yazısında ara...", TS.bodyMd, cs.onSurfaceVariant, maxLines = 1)
                         BasicTextField(query, { query = it }, singleLine = true, textStyle = TS.bodyMd.copy(color = cs.onSurface), cursorBrush = SolidColor(cs.primary), modifier = Modifier.fillMaxWidth())
                     }
-                    IconBtn("mic", box = 32.dp, icon = 18.dp) { vm.message = "Sesli arama yakında." }
+                    IconBtn("mic", box = 28.dp, icon = 16.dp) { vm.message = "Sesli arama yakında." }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.tap(cs.surfaceContainerHigh, FullShape).padding(4.dp)) {
-                        IconBtn("grid_view", box = 36.dp, icon = 18.dp, tint = if (grid) cs.primary else cs.onSurfaceVariant, bg = if (grid) cs.surfaceContainerLowest else Color.Transparent) { grid = true }
-                        IconBtn("view_list", box = 36.dp, icon = 18.dp, tint = if (!grid) cs.primary else cs.onSurfaceVariant, bg = if (!grid) cs.surfaceContainerLowest else Color.Transparent) { grid = false }
+                    Row(Modifier.tap(cs.surfaceContainerHigh, FullShape).padding(3.dp)) {
+                        IconBtn("grid_view", box = 32.dp, icon = 16.dp, tint = if (grid) cs.primary else cs.onSurfaceVariant, bg = if (grid) cs.surfaceContainerLowest else Color.Transparent) { grid = true }
+                        IconBtn("view_list", box = 32.dp, icon = 16.dp, tint = if (!grid) cs.primary else cs.onSurfaceVariant, bg = if (!grid) cs.surfaceContainerLowest else Color.Transparent) { grid = false }
                     }
                     Row(
-                        Modifier.height(44.dp).tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Modifier.height(40.dp).tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Sym("sort", 18.dp, cs.onSurfaceVariant)
+                        Sym("sort", 16.dp, cs.onSurfaceVariant)
                         Txt("Son Değişiklik", TS.labelMd, cs.onSurfaceVariant)
-                        Sym("expand_more", 16.dp, cs.onSurfaceVariant)
+                        Sym("expand_more", 15.dp, cs.onSurfaceVariant)
                     }
                 }
             }
@@ -221,15 +220,15 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
 
             // son düzenlenen sayfalar
             if (recent.isNotEmpty() && sel != "TRASH") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Sym("schedule", 20.dp, cs.primary)
-                            Txt("Son Düzenlenen Sayfalar", TS.titleMd, cs.onSurface)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Sym("schedule", 18.dp, cs.primary)
+                            Txt("Son Düzenlenen Sayfalar", TS.titleSm, cs.onSurface, weight = FontWeight.SemiBold)
                         }
                         Txt("${recent.size} açık oturum", TS.labelSm, cs.secondary)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         for (i in 0 until 3) {
                             val nb = recent.getOrNull(i)
                             if (nb == null) Box(Modifier.weight(1f)) else Box(Modifier.weight(1f)) { RecentCard(nb) { vm.open(nb.id) } }
@@ -239,24 +238,24 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
             }
 
             // defter koleksiyonu
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Sym("auto_stories", 20.dp, cs.primary)
-                        Txt("Defter Koleksiyonu", TS.titleLg, cs.onSurface)
+                        Sym("auto_stories", 18.dp, cs.primary)
+                        Txt("Defter Koleksiyonu", TS.titleMd, cs.onSurface, weight = FontWeight.SemiBold)
                     }
-                    Txt("${shown.size} Defter", TS.labelMd, cs.onSurfaceVariant)
+                    Txt("${shown.size} Defter", TS.labelSm, cs.onSurfaceVariant)
                 }
                 if (shown.isEmpty()) {
                     Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-                        Txt("Burada gösterilecek defter yok.", TS.bodyLg, cs.onSurfaceVariant)
+                        Txt("Burada gösterilecek defter yok.", TS.bodyMd, cs.onSurfaceVariant)
                     }
                 } else if (grid) {
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val cols = if (maxWidth > 1000.dp) 4 else if (maxWidth > 640.dp) 3 else 2
-                        Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        val cols = if (maxWidth > 1100.dp) 5 else if (maxWidth > 800.dp) 4 else if (maxWidth > 540.dp) 3 else 2
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             shown.chunked(cols).forEach { rowItems ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     rowItems.forEach { nb -> Box(Modifier.weight(1f)) { NotebookCard(vm, nb) } }
                                     repeat(cols - rowItems.size) { Box(Modifier.weight(1f)) }
                                 }
@@ -265,39 +264,6 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { shown.forEach { NotebookRow(vm, it) } }
-                }
-            }
-
-            // şablon ile hızlı başlat
-            Column(Modifier.fillMaxWidth().shadow(1.dp, rr(16)).background(cs.surfaceContainerLow, rr(16)).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Sym("add_circle", 20.dp, cs.primary)
-                        Txt("Şablon ile Hızlı Başlat", TS.titleSm, cs.onSurface)
-                    }
-                    Text("Tüm Şablonlar", style = TS.labelSm.copy(fontWeight = FontWeight.SemiBold, textDecoration = TextDecoration.None), color = cs.primary, modifier = Modifier.clickable { vm.message = "Şablonlar için Sayfalar ekranındaki Kağıt & Şablon Stüdyosu'nu kullanın." })
-                }
-                val quick = listOf(
-                    Triple("grain", PageTemplate.DOT, "Noktalı Izgara" to "5mm Dot Grid"),
-                    Triple("reorder", PageTemplate.RULED, "Çizgili Sayfa" to "Geniş Çizgi"),
-                    Triple("grid_4x4", PageTemplate.GRID, "Kareli Matematik" to "Mühendislik"),
-                    Triple("view_agenda", PageTemplate.CORNELL, "Cornell Not Düzeni" to "Ders Özeti"),
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    quick.forEach { (icon, tpl, texts) ->
-                        Row(
-                            Modifier.weight(1f).shadow(1.dp, rr(48)).tap(cs.surfaceContainerLowest, rr(48)) {
-                                vm.createNotebook(texts.first); vm.setDefaultTemplate(tpl)
-                            }.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Box(Modifier.size(40.dp).background(cs.surfaceContainerHigh, rr(32)), contentAlignment = Alignment.Center) { Sym(icon, 20.dp, cs.primary) }
-                            Column {
-                                Txt(texts.first, TS.labelMd, cs.onSurface, weight = FontWeight.Medium, maxLines = 1)
-                                Txt(texts.second, TS.bodySm, cs.onSurfaceVariant, maxLines = 1)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -309,16 +275,33 @@ fun LibraryScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
 @Composable
 private fun FolderRow(icon: String, label: String, count: Int, active: Boolean, iconTint: Color, fill: Boolean = false, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val shape = rr(10)
     Row(
-        Modifier.fillMaxWidth().tap(if (active) cs.secondaryContainer else Color.Transparent, FullShape, onClick).padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (active) cs.secondaryContainer else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Sym(icon, 20.dp, if (active) cs.onSecondaryContainer else iconTint, fill)
-            Txt(label, TS.labelLg, if (active) cs.onSecondaryContainer else cs.onSurfaceVariant, maxLines = 1)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Sym(icon, 18.dp, if (active) cs.onSecondaryContainer else iconTint, fill)
+            Txt(label, TS.labelMd, if (active) cs.onSecondaryContainer else cs.onSurfaceVariant, maxLines = 1)
         }
-        Pill(count.toString(), if (active) cs.surfaceContainerLowest else cs.surfaceContainer, if (active) cs.onSecondaryContainer else cs.secondary,
-            style = TS.labelSm.copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium))
+        Box(
+            Modifier
+                .clip(FullShape)
+                .background(if (active) cs.surfaceContainerLowest else cs.surfaceContainer)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                count.toString(),
+                color = if (active) cs.onSecondaryContainer else cs.secondary,
+                style = TS.labelSm.copy(fontSize = 11.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+            )
+        }
     }
 }
 
@@ -326,11 +309,11 @@ private fun FolderRow(icon: String, label: String, count: Int, active: Boolean, 
 private fun FilterChipX(text: String, active: Boolean, icon: String? = null, iconTint: Color? = null, check: Boolean = false, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
-        Modifier.tap(if (active) cs.secondaryContainer else cs.surfaceContainerLow, FullShape, onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.tap(if (active) cs.secondaryContainer else cs.surfaceContainerLow, FullShape, onClick).padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (active && check) Sym("check", 16.dp, cs.onSecondaryContainer)
-        else if (icon != null) Sym(icon, 16.dp, iconTint ?: cs.onSurfaceVariant)
+        if (active && check) Sym("check", 15.dp, cs.onSecondaryContainer)
+        else if (icon != null) Sym(icon, 15.dp, iconTint ?: cs.onSurfaceVariant)
         Txt(text, TS.labelMd, if (active) cs.onSecondaryContainer else cs.onSurfaceVariant, maxLines = 1)
     }
 }
@@ -340,22 +323,21 @@ private fun RecentCard(nb: Notebook, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val cv = coverStyle(nb.scheme)
     Row(
-        Modifier.fillMaxWidth().shadow(1.dp, rr(16)).tap(cs.surfaceContainerLowest, rr(16), onClick).padding(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().shadow(1.dp, rr(12)).tap(cs.surfaceContainerLowest, rr(12), onClick).padding(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(80.dp, 96.dp).clip(rr(32)).background(Brush.linearGradient(listOf(cv.from, cv.to)))) {
-            Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "draw", 28.dp, cv.fg.copy(alpha = .85f), modifier = Modifier.align(Alignment.Center))
-            Text("s. ${nb.lastPage + 1}", Modifier.align(Alignment.BottomEnd).padding(4.dp).background(cs.surface.copy(alpha = .9f), rr(4)).padding(horizontal = 4.dp),
-                style = TS.labelSm.copy(fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = FontWeight.SemiBold), color = cs.onSurface)
+        Box(Modifier.size(52.dp, 66.dp).clip(rr(8)).background(Brush.linearGradient(listOf(cv.from, cv.to)))) {
+            Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "draw", 22.dp, cv.fg.copy(alpha = .85f), modifier = Modifier.align(Alignment.Center))
+            Text("s. ${nb.lastPage + 1}", Modifier.align(Alignment.BottomEnd).padding(3.dp).background(cs.surface.copy(alpha = .9f), rr(4)).padding(horizontal = 3.dp),
+                style = TS.labelSm.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold), color = cs.onSurface)
         }
-        Column(Modifier.weight(1f).height(96.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Txt(nb.tag, TS.labelSm, when (nb.scheme) { Scheme.TERTIARY -> cs.tertiary; Scheme.SECONDARY, Scheme.SURFACE -> cs.secondary; Scheme.PDF -> cs.error; else -> cs.primary })
-                Txt(nb.title, TS.titleSm, cs.onSurface, Modifier.padding(top = 2.dp), maxLines = 1)
-            }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Txt(nb.tag, TS.labelSm, when (nb.scheme) { Scheme.TERTIARY -> cs.tertiary; Scheme.SECONDARY, Scheme.SURFACE -> cs.secondary; Scheme.PDF -> cs.error; else -> cs.primary })
+            Txt(nb.title, TS.titleSm, cs.onSurface, maxLines = 1, weight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Txt(relTime(nb.updatedAt), TS.bodySm, cs.onSurfaceVariant)
-                Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "cloud_done", 16.dp, cs.secondary)
+                Txt(relTime(nb.updatedAt), TS.labelSm, cs.onSurfaceVariant)
+                Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "cloud_done", 14.dp, cs.secondary)
             }
         }
     }
@@ -365,7 +347,7 @@ private fun RecentCard(nb: Notebook, onClick: () -> Unit) {
 private fun NotebookMenu(vm: AppViewModel, nb: Notebook) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconBtn("more_vert", box = 32.dp, icon = 18.dp) { open = true }
+        IconBtn("more_vert", box = 28.dp, icon = 16.dp) { open = true }
         DropdownMenu(open, { open = false }) {
             if (nb.trashed) {
                 DropdownMenuItem(text = { Text("Geri Yükle") }, onClick = { open = false; vm.restore(nb.id) })
@@ -383,31 +365,59 @@ private fun NotebookMenu(vm: AppViewModel, nb: Notebook) {
 private fun NotebookCard(vm: AppViewModel, nb: Notebook) {
     val cs = MaterialTheme.colorScheme
     val cv = coverStyle(nb.scheme)
-    Column(Modifier.fillMaxWidth().shadow(1.dp, rr(16)).tap(cs.surfaceContainerLowest, rr(16)) { if (!nb.trashed) vm.open(nb.id) }.padding(12.dp)) {
-        Row(Modifier.fillMaxWidth().aspectRatio(3f / 4f).shadow(3.dp, rr(48)).clip(rr(48))) {
-            Box(Modifier.width(16.dp).fillMaxHeight().background(cv.spine))
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(1.dp, rr(14))
+            .tap(cs.surfaceContainerLowest, rr(14)) { if (!nb.trashed) vm.open(nb.id) }
+            .padding(10.dp)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(3f / 3.8f)
+                .shadow(2.dp, rr(12))
+                .clip(rr(12))
+        ) {
+            Box(Modifier.width(10.dp).fillMaxHeight().background(cv.spine))
             Column(
-                Modifier.weight(1f).fillMaxHeight().background(Brush.linearGradient(listOf(cv.from, cv.to), androidx.compose.ui.geometry.Offset(0f, Float.POSITIVE_INFINITY), androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f))).padding(14.dp),
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(Brush.linearGradient(listOf(cv.from, cv.to), androidx.compose.ui.geometry.Offset(0f, Float.POSITIVE_INFINITY), androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f)))
+                    .padding(10.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                    Text(nb.tag.uppercase(), Modifier.background(cv.chipBg, rr(4)).padding(horizontal = 8.dp, vertical = 2.dp), color = cv.fg, style = TS.labelSm.copy(fontWeight = FontWeight.SemiBold, letterSpacing = androidx.compose.ui.unit.TextUnit(0.8f, androidx.compose.ui.unit.TextUnitType.Sp)), maxLines = 1)
-                    Sym(if (nb.starred) "star" else if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "push_pin", 18.dp, cv.fg.copy(alpha = if (nb.starred) 1f else .7f), nb.starred)
+                    Text(
+                        nb.tag.uppercase(),
+                        Modifier.background(cv.chipBg, rr(4)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = cv.fg,
+                        style = TS.labelSm.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp),
+                        maxLines = 1
+                    )
+                    Sym(if (nb.starred) "star" else if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "push_pin", 16.dp, cv.fg.copy(alpha = if (nb.starred) 1f else .7f), nb.starred)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Txt(nb.title, TS.titleMd, cv.fg, weight = FontWeight.SemiBold, maxLines = 3)
-                    Txt(nb.desc, TS.bodySm, cv.fg.copy(alpha = .8f), maxLines = 2)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Txt(nb.title, TS.titleSm, cv.fg, weight = FontWeight.SemiBold, maxLines = 2)
+                    if (nb.desc.isNotBlank()) {
+                        Txt(nb.desc, TS.bodySm, cv.fg.copy(alpha = .8f), maxLines = 1)
+                    }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Txt("${nb.pageCount} Sayfa", TS.labelSm, cv.fg.copy(alpha = .8f))
-                    Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "sync", 16.dp, cv.fg.copy(alpha = .8f))
+                    Text("${nb.pageCount} Sayfa", color = cv.fg.copy(alpha = .85f), style = TS.labelSm.copy(fontSize = 11.sp))
+                    Sym(if (nb.kind == NotebookKind.PDF) "picture_as_pdf" else "sync", 15.dp, cv.fg.copy(alpha = .8f))
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Column(Modifier.weight(1f)) {
-                Txt(nb.title, TS.labelLg, cs.onSurface, weight = FontWeight.Medium, maxLines = 1)
-                Txt(relTime(nb.updatedAt), TS.bodySm, cs.onSurfaceVariant)
+                Txt(nb.title, TS.labelMd, cs.onSurface, weight = FontWeight.Medium, maxLines = 1)
+                Txt(relTime(nb.updatedAt), TS.labelSm, cs.onSurfaceVariant)
             }
             NotebookMenu(vm, nb)
         }
