@@ -126,19 +126,17 @@ fun Shell(vm: AppViewModel, content: @Composable () -> Unit) {
 @Composable
 private fun Sidebar(vm: AppViewModel) {
     val cs = MaterialTheme.colorScheme
+    val isDark = vm.isDark(androidx.compose.foundation.isSystemInDarkTheme())
     Column(
-        Modifier.width(96.dp).fillMaxHeight().shadow(2.dp).background(cs.surfaceContainerLow).padding(vertical = 24.dp),
+        Modifier.width(72.dp).fillMaxHeight().shadow(1.dp).background(cs.surfaceContainerLow).padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(Modifier.size(44.dp).shadow(3.dp, FullShape).background(cs.primaryContainer, FullShape), contentAlignment = Alignment.Center) {
-                    Sym("ink_pen", 24.dp, cs.onPrimaryContainer)
-                }
-                Txt("InkNote", TS.labelSm, cs.onSurface, weight = FontWeight.SemiBold)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.size(38.dp).shadow(2.dp, FullShape).background(cs.primaryContainer, FullShape), contentAlignment = Alignment.Center) {
+                Sym("ink_pen", 20.dp, cs.onPrimaryContainer)
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NavItem("auto_stories", "Kitaplık", vm.route == Route.LIBRARY) { vm.route = Route.LIBRARY }
                 NavItem("edit_note", "Tuval", vm.route == Route.CANVAS) {
                     vm.route = Route.CANVAS
@@ -150,11 +148,21 @@ private fun Sidebar(vm: AppViewModel) {
                 NavItem("search", "Arama", vm.route == Route.SEARCH) { vm.route = Route.SEARCH }
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            IconBtn("cloud_done", box = 44.dp, tint = cs.secondary, bg = if (vm.route == Route.CLOUD) cs.secondaryContainer else Color.Transparent) { vm.route = Route.CLOUD }
-            IconBtn("settings", box = 44.dp, bg = if (vm.route == Route.SETTINGS) cs.secondaryContainer else Color.Transparent) { vm.route = Route.SETTINGS }
-            Box(Modifier.padding(top = 8.dp).size(32.dp).shadow(1.dp, FullShape).background(cs.primary, FullShape), contentAlignment = Alignment.Center) {
-                Sym("person", 18.dp, cs.onPrimary)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Hızlı Karanlık/Açık Tema Değiştirici
+            IconBtn(
+                name = if (isDark) "dark_mode" else "light_mode",
+                box = 38.dp,
+                icon = 18.dp,
+                tint = if (isDark) cs.primary else cs.onSurfaceVariant,
+                bg = cs.surfaceContainerHigh
+            ) {
+                vm.toggleTheme()
+            }
+            IconBtn("cloud_done", box = 38.dp, icon = 18.dp, tint = cs.secondary, bg = if (vm.route == Route.CLOUD) cs.secondaryContainer else Color.Transparent) { vm.route = Route.CLOUD }
+            IconBtn("settings", box = 38.dp, icon = 18.dp, bg = if (vm.route == Route.SETTINGS) cs.secondaryContainer else Color.Transparent) { vm.route = Route.SETTINGS }
+            Box(Modifier.size(28.dp).background(cs.primary, FullShape), contentAlignment = Alignment.Center) {
+                Sym("person", 16.dp, cs.onPrimary)
             }
         }
     }
@@ -165,11 +173,11 @@ private fun NavItem(icon: String, label: String, active: Boolean, onClick: () ->
     val cs = MaterialTheme.colorScheme
     val fg = if (active) cs.onSecondaryContainer else cs.onSurfaceVariant
     Column(
-        Modifier.width(64.dp).tap(if (active) cs.secondaryContainer else Color.Transparent, FullShape, onClick).padding(vertical = 6.dp),
+        Modifier.width(58.dp).tap(if (active) cs.secondaryContainer else Color.Transparent, FullShape, onClick).padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.width(56.dp).height(32.dp), contentAlignment = Alignment.Center) { Sym(icon, 22.dp, fg, active) }
-        Txt(label, TS.labelSm, fg, Modifier.padding(top = 2.dp), weight = if (active) FontWeight.SemiBold else null, maxLines = 1)
+        Box(Modifier.width(48.dp).height(28.dp), contentAlignment = Alignment.Center) { Sym(icon, 20.dp, fg, active) }
+        Txt(label, TS.labelSm, fg, Modifier.padding(top = 1.dp), weight = if (active) FontWeight.SemiBold else null, maxLines = 1)
     }
 }
 
@@ -178,23 +186,22 @@ private fun TopBar() {
     val cs = MaterialTheme.colorScheme
     val stylus = hasStylus()
     Row(
-        Modifier.fillMaxWidth().height(64.dp).background(cs.surface).padding(horizontal = 32.dp),
+        Modifier.fillMaxWidth().height(48.dp).background(cs.surface).padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Txt("InkNote Workspace", TS.titleMd, cs.onSurface, weight = FontWeight.Medium)
-            Pill("Tablet Landscape", cs.secondaryContainer, cs.onSecondaryContainer)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Txt("InkNote", TS.titleSm, cs.onSurface, weight = FontWeight.SemiBold)
+            Pill("Dijital Defter", cs.secondaryContainer, cs.onSecondaryContainer)
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
-                Modifier.tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.tap(cs.surfaceContainerHigh, FullShape).padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Sym("stylus_note", 18.dp, cs.onSurfaceVariant)
-                Txt(if (stylus) "Stylus Bağlı" else "Stylus Algılanmadı", TS.labelMd, cs.onSurfaceVariant)
+                Sym("stylus_note", 16.dp, cs.onSurfaceVariant)
+                Txt(if (stylus) "Stylus Hazır" else "Dokunmatik / Kalem", TS.labelSm, cs.onSurfaceVariant)
             }
-            Box(Modifier.size(32.dp).background(cs.primary, FullShape), contentAlignment = Alignment.Center) { Sym("person", 18.dp, cs.onPrimary) }
         }
     }
 }

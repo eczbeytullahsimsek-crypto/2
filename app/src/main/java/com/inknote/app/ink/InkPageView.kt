@@ -30,6 +30,7 @@ import com.inknote.app.data.Pt
 import com.inknote.app.data.StrokeData
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 enum class Tool { PEN, BALL, BRUSH, HIGHLIGHT, ERASER, LASSO, SHAPE, TEXT, STICKER }
@@ -38,14 +39,16 @@ enum class Tool { PEN, BALL, BRUSH, HIGHLIGHT, ERASER, LASSO, SHAPE, TEXT, STICK
  * Tek bir sayfanın çizim yüzeyi.
  *
  * Mimari Özellikleri:
- * 1. ViewPort State Manager: Çizim koordinat sistemi (Document Space - [ViewPort.DOC_WIDTH]) ile ekran
- *    koordinat sistemini (View Pixels) birbirinden tamamen ayırır.
- * 2. Donanım Matrisi Eşlemesi: [InProgressStrokesView]'a [ViewPort.viewToStrokeMatrix] verilerek
- *    ekran koordinatları doğrudan stroke koordinatlarına sıfır kayma (zero offset) ile dönüştürülür.
- * 3. Donanım Hızlandırmalı Render: [CanvasStrokeRenderer.draw] viewport matrisi ile GPU üzerinde
- *    çizim yapar; zoom ve pan yapıldığında stroke vektör yolları asla yeniden hesaplanmaz veya recompose edilmez.
- * 4. Düşük Gecikme & Palm Rejection: Ön arabellek (front-buffer), hareket tahmini (motion prediction)
- *    ve kalem çizimlerinde el ayası reddi kesintisiz çalışır.
+ * 1. Saf View Piksel Koordinat Sistemi (Direct View Pixels): Canlı çizim ve kalıcı çizim doğrudan
+ *    yerel View piksel koordinatlarında (1:1) çalışır.
+ * 2. Sıfır Sapma Handoff (Zero-Drift Handoff): InProgressStrokesView vuruşu tamamladığında
+ *    dönen Stroke nesnesi doğrudan kalıcı katmana aktarılır ve Identity matrisi ile çizilir.
+ *    Böylece kalem ekrandan kalktığı an sıfır kayma, sıfır büzüşme ve sıfır gecikme elde edilir.
+ * 3. Çözünürlükten Bağımsız Depolama: Veritabanına ve dışa aktarmaya giderken koordinatlar
+ *    sayfa genişliğine (0..1) oranlanır; zoom ve ekran boyutu değiştiğinde vuruşlar yeni piksel
+ *    genişliğine göre tek seferde yeniden yapılandırılır.
+ * 4. Düşük Gecikme & Palm Rejection: View tabanlı InProgressStrokesView ve hareket tahmini (motion prediction)
+ *    ile kalem çizimlerinde el ayası reddi kesintisiz çalışır.
  */
 class InkPageView(context: Context) : FrameLayout(context) {
 
@@ -70,6 +73,7 @@ class InkPageView(context: Context) : FrameLayout(context) {
     var tool: Tool = Tool.PEN
     var colorArgb: Int = Color.BLACK
     var widthDp: Float = 2.5f
+    var pressureSensitivity: Float = 1.0f
     /** true: yalnızca kalem çizer, parmak sayfayı kaydırır/zoom yapar (palm rejection). */
     var stylusOnly: Boolean = false
 
@@ -82,8 +86,9 @@ class InkPageView(context: Context) : FrameLayout(context) {
         }
     var onSeekAudioTo: ((Long) -> Unit)? = null
 
-    // ---- Veri (Belge koordinatlarında saklanır) ----
+    // ---- Veri (0..1 oranında normalize saklanır) ----
     private var data: List<StrokeData> = emptyList()
+    // Ekran piksellerinde oluşturulmuş Stroke nesneleri
     private var strokes: List<Stroke?> = emptyList()
     private var gestureActive = false
     private var selected: Set<Int> = emptySet()
@@ -92,7 +97,10 @@ class InkPageView(context: Context) : FrameLayout(context) {
     private val density = context.resources.displayMetrics.density
     private val renderer = CanvasStrokeRenderer.create()
     private val identity = Matrix()
-    private val inProgress = InProgressStrokesView(context)
+    @Suppress("DEPRECATION")
+    private val inProgress = InProgressStrokesView(context).apply {
+        useHighLatencyRenderHelper = true
+    }
     private val predictor: MotionEventPredictor = MotionEventPredictor.newInstance(this)
     private val kinds = HashMap<InProgressStrokeId, String>()
     private var currentId: InProgressStrokeId? = null
@@ -103,7 +111,6 @@ class InkPageView(context: Context) : FrameLayout(context) {
     // eraser / lasso durumu
     private var eraseBefore: List<StrokeData>? = null
     private val lassoPath = Path()
-    private val lassoDocPath = Path()
     private val lassoPoints = ArrayList<Float>()
 
     private val dashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -117,7 +124,7 @@ class InkPageView(context: Context) : FrameLayout(context) {
         color = 0x14363BAB
     }
 
-    // ---- Donanım Hızlandırma Katmanı (HardwareLayer) & Doküman Önbelleği ----
+    // ---- Donanım Hızlandırma Katmanı (HardwareLayer) & Önbellek ----
     private var docCacheBitmap: Bitmap? = null
     private var docCacheCanvas: Canvas? = null
     private var lastCachedStrokeCount = 0
@@ -129,8 +136,10 @@ class InkPageView(context: Context) : FrameLayout(context) {
         }
 
         override fun onDraw(canvas: Canvas) {
+            if (strokes.size != data.size && width > 0) {
+                rebuild(width.toFloat())
+            }
             val maxTime = replayMaxTimeMs
-            val matrix = viewport.strokeToViewMatrix
 
             if (maxTime != null) {
                 // Replay modunda zaman kısıtlı vuruşlar dinamik çizilir
@@ -138,7 +147,7 @@ class InkPageView(context: Context) : FrameLayout(context) {
                     val s = strokes[i] ?: continue
                     val d = data.getOrNull(i)
                     if (d != null && d.timeOffsetMs > 0 && d.timeOffsetMs > maxTime) continue
-                    runCatching { renderer.draw(canvas, s, matrix) }
+                    runCatching { renderer.draw(canvas, s, identity) }
                 }
             } else {
                 // Normal mod: Yüksek vuruş sayılarında doküman önbelleği, aksi halde doğrudan Skia GPU çizimi
@@ -149,12 +158,12 @@ class InkPageView(context: Context) : FrameLayout(context) {
                     }
                     val bmp = docCacheBitmap
                     if (bmp != null && !bmp.isRecycled) {
-                        canvas.drawBitmap(bmp, matrix, null)
+                        canvas.drawBitmap(bmp, 0f, 0f, null)
                     }
                 } else {
                     for (i in strokes.indices) {
                         val s = strokes[i] ?: continue
-                        runCatching { renderer.draw(canvas, s, matrix) }
+                        runCatching { renderer.draw(canvas, s, identity) }
                     }
                 }
             }
@@ -222,16 +231,16 @@ class InkPageView(context: Context) : FrameLayout(context) {
     // ------------------------------------------------------------------ Doküman Önbelleği
 
     private fun ensureDocCacheBitmap(): Boolean {
-        val dw = ViewPort.DOC_WIDTH.toInt()
-        val dh = viewport.docHeight.toInt()
-        if (dw <= 0 || dh <= 0) return false
+        val w = width
+        val h = height
+        if (w <= 0 || h <= 0) return false
         val current = docCacheBitmap
-        if (current != null && current.width == dw && current.height == dh && !current.isRecycled) {
+        if (current != null && current.width == w && current.height == h && !current.isRecycled) {
             return true
         }
         current?.recycle()
         return try {
-            val bmp = Bitmap.createBitmap(dw, dh, Bitmap.Config.ARGB_8888)
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             docCacheBitmap = bmp
             docCacheCanvas = Canvas(bmp)
             lastCachedStrokeCount = 0
@@ -262,18 +271,21 @@ class InkPageView(context: Context) : FrameLayout(context) {
         if (list.size == data.size && list == data) return
         data = list
         selected = emptySet()
-        rebuild()
+        if (width > 0) {
+            rebuild(width.toFloat())
+        }
         listener?.onSelection(null)
     }
 
     /**
-     * Vuruşları sabit Belge Koordinatlarında (ViewPort.DOC_WIDTH) oluşturur.
-     * Zoom veya ekran boyutu değiştiğinde vuruşlar ASLA yeniden oluşturulmaz!
+     * Vuruşları anlık sayfa piksel genişliğinde (w) oluşturur.
+     * Çizim anında doğrudan Identity matrisiyle sıfır sapmayla çizilir.
      */
-    private fun rebuild() {
+    private fun rebuild(targetWidth: Float = width.toFloat()) {
+        val w = if (targetWidth > 0f) targetWidth else return
         strokes = data.map {
             runCatching {
-                if (it.pts.isEmpty()) null else toStroke(it)
+                if (it.pts.isEmpty()) null else toStroke(it, w)
             }.getOrNull()
         }
         docCacheBitmap?.eraseColor(Color.TRANSPARENT)
@@ -288,15 +300,16 @@ class InkPageView(context: Context) : FrameLayout(context) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w > 0 && h > 0) {
             viewport.setViewSize(w.toFloat(), h.toFloat(), pageAspect)
-            finishedLayer.invalidate()
+            if (w != oldw || strokes.size != data.size) {
+                rebuild(w.toFloat())
+            }
         }
     }
 
     /**
-     * Dışarıdan zoom ve pan durumunu günceller (örneğin AppBar kontrolleri).
+     * Dışarıdan zoom ve pan durumunu günceller.
      */
-    fun syncViewPort(zoomScale: Float, panX: Float, panY: Float) {
-        viewport.setZoomAndPan(zoomScale, panX, panY)
+    fun syncViewPort(zoomScale: Float = 1.0f, panX: Float = 0f, panY: Float = 0f) {
         finishedLayer.invalidate()
     }
 
@@ -314,22 +327,23 @@ class InkPageView(context: Context) : FrameLayout(context) {
         }
     }
 
-    private fun toStroke(d: StrokeData): Stroke? {
-        if (d.pts.isEmpty()) return null
-        val docW = ViewPort.DOC_WIDTH
+    private fun toStroke(d: StrokeData, w: Float): Stroke? {
+        if (d.pts.isEmpty() || w <= 0f) return null
         val brush = Brush.createWithColorIntArgb(
             family = familyFor(d.kind),
             colorIntArgb = d.argb,
-            size = max(0.5f, d.size * docW),
+            size = max(0.5f, d.size * w),
             epsilon = 0.1f,
         )
         val type = when (d.tool) { 0 -> InputToolType.STYLUS; 1 -> InputToolType.TOUCH; else -> InputToolType.MOUSE }
         val batch = MutableStrokeInputBatch()
         var lastT = -1L
+        val pPower = 1.0 / pressureSensitivity.toDouble().coerceIn(0.2, 3.0)
         for (p in d.pts) {
             val t = if (p.t <= lastT) lastT + 1 else p.t
             lastT = t
-            batch.addOrIgnore(type, p.x * docW, p.y * docW, t, pressure = p.p)
+            val adjP = if (p.p > 0f) p.p.toDouble().pow(pPower).toFloat().coerceIn(0.01f, 1.0f) else 0.5f
+            batch.addOrIgnore(type, p.x * w, p.y * w, t, pressure = adjP)
         }
         return try {
             Stroke(brush, batch)
@@ -362,13 +376,14 @@ class InkPageView(context: Context) : FrameLayout(context) {
                 if (e.pointerCount >= 2 && !isPen) return false
 
                 if (replayMaxTimeMs != null) {
-                    val docPt = viewport.viewToDoc(e.x, e.y)
-                    val docW = ViewPort.DOC_WIDTH
-                    val r = 24f * density * (docW / max(1f, width.toFloat()))
-                    for (d in data.reversed()) {
-                        if (d.timeOffsetMs > 0 && hits(d, docPt.x, docPt.y, r, docW)) {
-                            onSeekAudioTo?.invoke(d.timeOffsetMs)
-                            return true
+                    val w = width.toFloat()
+                    if (w > 0f) {
+                        val r = 24f * density
+                        for (d in data.reversed()) {
+                            if (d.timeOffsetMs > 0 && hits(d, e.x, e.y, r, w)) {
+                                onSeekAudioTo?.invoke(d.timeOffsetMs)
+                                return true
+                            }
                         }
                     }
                 }
@@ -464,8 +479,6 @@ class InkPageView(context: Context) : FrameLayout(context) {
                         val factor = newDist / lastTwoFingerDist
                         val panDeltaX = midX - lastTwoFingerMidX
                         val panDeltaY = midY - lastTwoFingerMidY
-                        // ViewPort doğrudan donanım matrisini günceller ve invalidate tetikler (120 FPS akıcı zoom)
-                        viewport.applyTransformDelta(factor, midX, midY, panDeltaX, panDeltaY)
                         onTwoFingerTransform?.invoke(factor, panDeltaX, panDeltaY)
                     }
                     lastTwoFingerDist = newDist
@@ -551,9 +564,7 @@ class InkPageView(context: Context) : FrameLayout(context) {
             requestUnbufferedDispatch(e)
             predictor.record(e)
             val kind = kindFor(activeTool)
-            val docW = ViewPort.DOC_WIDTH
-            val baseScale = max(0.001f, width.toFloat() / docW)
-            val targetBrushSize = max(0.5f, widthDp * density * sizeMultiplier(activeTool) / baseScale)
+            val targetBrushSize = max(0.5f, widthDp * density * sizeMultiplier(activeTool))
 
             val brush = Brush.createWithColorIntArgb(
                 family = familyFor(kind),
@@ -562,14 +573,13 @@ class InkPageView(context: Context) : FrameLayout(context) {
                 epsilon = 0.1f,
             )
 
-            // ViewPort viewToStrokeMatrix: Ekran piksellerini doğrudan doküman koordinatlarına eşler.
-            // InProgressStrokesView RenderThread'i strokeToViewTransform ile çizim yaparak kalem ucu
-            // ile çizgi arasındaki kaymayı (offset) tamamen yok eder.
+            // InProgressStrokesView canlı çizimi doğrudan View piksel koordinatlarında yapar.
+            // MotionEventToWorldTransform ve StrokeToWorldTransform varsayılan (Identity) bırakılarak
+            // kalem ucu ile ekranda beliren çizgi arasında %100 birebir hizalama (SIFIR offset) sağlanır.
             val id = inProgress.startStroke(
                 e,
                 currentPointer,
-                brush,
-                viewport.viewToStrokeMatrix
+                brush
             )
             currentId = id
             kinds[id] = kind
@@ -612,8 +622,9 @@ class InkPageView(context: Context) : FrameLayout(context) {
         val before = data
         val newData = ArrayList<StrokeData>()
         val newStrokes = ArrayList<Stroke?>()
-        val docW = ViewPort.DOC_WIDTH
+        val w = max(1f, width.toFloat())
 
+        val pPower = 1.0 / pressureSensitivity.toDouble().coerceIn(0.2, 3.0)
         for ((id, stroke) in finished) {
             val kind = kinds.remove(id) ?: "pen"
             val n = stroke.inputs.size
@@ -621,11 +632,15 @@ class InkPageView(context: Context) : FrameLayout(context) {
             val pts = ArrayList<Pt>(n)
             for (i in 0 until n) {
                 val inp = stroke.inputs[i]
-                pts.add(Pt(inp.x / docW, inp.y / docW, inp.elapsedTimeMillis, inp.pressure))
+                val adjP = if (inp.pressure > 0f) inp.pressure.toDouble().pow(pPower).toFloat().coerceIn(0.01f, 1.0f) else 0.5f
+                // Canlı çizim View piksellerindedir; kalıcı depolama için 0..1 oranına normalize edilir
+                pts.add(Pt(inp.x / w, inp.y / w, inp.elapsedTimeMillis, adjP))
             }
             val audioOffset = audioOffsetProvider?.invoke() ?: 0L
-            newData.add(StrokeData(kind, stroke.brush.colorIntArgb, stroke.brush.size / docW, activeToolType, pts, audioOffset))
-            // Bitmiş vuruş zaten doküman koordinatlarında oluşturulmuştur; tekrar dönüştürme gerektirmez
+            val strokeData = StrokeData(kind, stroke.brush.colorIntArgb, stroke.brush.size / w, activeToolType, pts, audioOffset)
+            newData.add(strokeData)
+            // Canlı çizimden gelen bitmiş Stroke zaten doğrudan bu View'ın piksellerindedir.
+            // Bu sayede kalem ekrandan kalktığı an sıfır kayma, sıfır gecikme ve sıfır yeniden hesaplama elde edilir.
             newStrokes.add(stroke)
         }
 
@@ -648,17 +663,15 @@ class InkPageView(context: Context) : FrameLayout(context) {
     // ------------------------------------------------------------------ Silgi (Eraser)
 
     private fun eraseAt(viewX: Float, viewY: Float) {
-        if (width <= 0 || height <= 0) return
-        val docPt = viewport.viewToDoc(viewX, viewY)
-        val docW = ViewPort.DOC_WIDTH
-        val baseScale = max(0.001f, width.toFloat() / docW)
-        val r = 16f * density / (baseScale * viewport.zoomScale)
+        val w = width.toFloat()
+        if (w <= 0f || height <= 0) return
+        val r = 16f * density
         var removed = false
         val nd = ArrayList<StrokeData>(data.size)
         val ns = ArrayList<Stroke?>(data.size)
 
         for (i in data.indices) {
-            if (hits(data[i], docPt.x, docPt.y, r, docW)) {
+            if (hits(data[i], viewX, viewY, r, w)) {
                 removed = true
             } else {
                 nd.add(data[i])
@@ -678,16 +691,16 @@ class InkPageView(context: Context) : FrameLayout(context) {
         }
     }
 
-    private fun hits(d: StrokeData, docX: Float, docY: Float, r: Float, docW: Float): Boolean {
-        if (d.pts.isEmpty()) return false
-        val rr = r + (d.size * docW) / 2f
-        var px = d.pts[0].x * docW
-        var py = d.pts[0].y * docW
-        if (dist(px, py, docX, docY) <= rr) return true
+    private fun hits(d: StrokeData, viewX: Float, viewY: Float, r: Float, w: Float): Boolean {
+        if (d.pts.isEmpty() || w <= 0f) return false
+        val rr = r + (d.size * w) / 2f
+        var px = d.pts[0].x * w
+        var py = d.pts[0].y * w
+        if (dist(px, py, viewX, viewY) <= rr) return true
         for (i in 1 until d.pts.size) {
-            val cx = d.pts[i].x * docW
-            val cy = d.pts[i].y * docW
-            if (segDist(docX, docY, px, py, cx, cy) <= rr) return true
+            val cx = d.pts[i].x * w
+            val cy = d.pts[i].y * w
+            if (segDist(viewX, viewY, px, py, cx, cy) <= rr) return true
             px = cx
             py = cy
         }
@@ -708,23 +721,19 @@ class InkPageView(context: Context) : FrameLayout(context) {
 
     private fun finishLasso() {
         lassoPath.close()
-        if (width <= 0 || height <= 0 || lassoPoints.size < 6) {
+        val w = width
+        val h = height
+        if (w <= 0 || h <= 0 || lassoPoints.size < 6) {
             lassoPath.rewind()
             finishedLayer.invalidate()
             return
         }
 
-        // Kement ekran yolunu doküman koordinatlarına dönüştür
-        lassoDocPath.rewind()
-        lassoPath.transform(viewport.viewToStrokeMatrix, lassoDocPath)
-
-        val docW = ViewPort.DOC_WIDTH.toInt()
-        val docH = viewport.docHeight.toInt()
         val region = Region()
-        region.setPath(lassoDocPath, Region(Rect(0, 0, docW, docH)))
+        region.setPath(lassoPath, Region(Rect(0, 0, w, h)))
 
         val sel = HashSet<Int>()
-        val wf = ViewPort.DOC_WIDTH
+        val wf = w.toFloat()
         for (i in data.indices) {
             val pts = data[i].pts
             var inside = 0
@@ -734,31 +743,28 @@ class InkPageView(context: Context) : FrameLayout(context) {
             if (pts.isNotEmpty() && inside >= pts.size * 0.8f) sel.add(i)
         }
         lassoPath.rewind()
-        lassoDocPath.rewind()
         selected = sel
         finishedLayer.invalidate()
         listener?.onSelection(selectionBoundsView())
     }
 
     /**
-     * Seçim kutusunu ekran (View) koordinatlarına dönüştürür.
+     * Seçim kutusunu ekran (View) koordinatlarında hesaplar.
      */
     fun selectionBoundsView(): RectF? {
         if (selected.isEmpty()) return null
-        val docW = ViewPort.DOC_WIDTH
+        val w = width.toFloat()
+        if (w <= 0f) return null
         var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
         for (i in selected) {
             val d = data.getOrNull(i) ?: continue
             for (p in d.pts) {
-                l = min(l, p.x * docW); r = max(r, p.x * docW)
-                t = min(t, p.y * docW); b = max(b, p.y * docW)
+                l = min(l, p.x * w); r = max(r, p.x * w)
+                t = min(t, p.y * w); b = max(b, p.y * w)
             }
         }
         if (l > r) return null
-        val docRect = RectF(l, t, r, b)
-        val viewRect = RectF()
-        viewport.mapRectToView(docRect, viewRect)
-        return viewRect
+        return RectF(l, t, r, b)
     }
 
     fun deleteSelection() {
@@ -767,7 +773,9 @@ class InkPageView(context: Context) : FrameLayout(context) {
         val after = before.filterIndexed { i, _ -> i !in selected }
         selected = emptySet()
         data = after
-        rebuild()
+        if (width > 0) {
+            rebuild(width.toFloat())
+        }
         listener?.onSelection(null)
         listener?.onChanged(before, after)
     }

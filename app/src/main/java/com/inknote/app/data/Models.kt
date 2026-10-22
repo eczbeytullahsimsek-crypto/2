@@ -50,6 +50,10 @@ data class Notebook(
     val paperTone: Int = 0,
     val paperSize: PaperSize = PaperSize.A4,
     val trashed: Boolean = false,
+    val pdfMarginLeft: Float = 0f,
+    val pdfMarginRight: Float = 0f,
+    val pdfMarginTop: Float = 0f,
+    val pdfMarginBottom: Float = 0f,
 ) {
     fun templateOf(page: Int) = templates[page] ?: defaultTemplate
 
@@ -59,6 +63,10 @@ data class Notebook(
         put("pageCount", pageCount); put("starred", starred); put("updatedAt", updatedAt)
         put("lastPage", lastPage); put("defaultTemplate", defaultTemplate.name)
         put("paperTone", paperTone); put("paperSize", paperSize.name); put("trashed", trashed)
+        put("pdfMarginLeft", pdfMarginLeft.toDouble())
+        put("pdfMarginRight", pdfMarginRight.toDouble())
+        put("pdfMarginTop", pdfMarginTop.toDouble())
+        put("pdfMarginBottom", pdfMarginBottom.toDouble())
         put("templates", JSONObject().also { o -> templates.forEach { (k, v) -> o.put(k.toString(), v.name) } })
     }
 
@@ -82,6 +90,10 @@ data class Notebook(
                 templates = tpl, paperTone = o.optInt("paperTone"),
                 paperSize = runCatching { PaperSize.valueOf(o.getString("paperSize")) }.getOrDefault(PaperSize.A4),
                 trashed = o.optBoolean("trashed"),
+                pdfMarginLeft = o.optDouble("pdfMarginLeft", 0.0).toFloat(),
+                pdfMarginRight = o.optDouble("pdfMarginRight", 0.0).toFloat(),
+                pdfMarginTop = o.optDouble("pdfMarginTop", 0.0).toFloat(),
+                pdfMarginBottom = o.optDouble("pdfMarginBottom", 0.0).toFloat(),
             )
         }
     }

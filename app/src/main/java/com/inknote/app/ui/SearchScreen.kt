@@ -168,14 +168,78 @@ fun CloudScreen() {
 @Composable
 fun SettingsScreen(vm: AppViewModel) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Txt("Uygulama Ayarları", TS.headlineLg, cs.onSurface)
-        Row(Modifier.fillMaxWidth().background(cs.surfaceContainerLow, rr(16)).padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Txt("Palm Koruması", TS.titleMd, cs.onSurface)
-                Txt("Açıkken yalnızca kalem çizer; parmak sayfayı kaydırır.", TS.bodySm, cs.onSurfaceVariant)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(28.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Txt("Uygulama Ayarları", TS.headlineLg, cs.onSurface, weight = FontWeight.SemiBold)
+
+        // Tema Seçimi (Sistem / Açık / Koyu)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(cs.surfaceContainerLow, rr(16))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Sym("palette", 22.dp, cs.primary)
+                Column {
+                    Txt("Görünüm ve Tema", TS.titleMd, cs.onSurface, weight = FontWeight.SemiBold)
+                    Txt("Uygulamanın renk temasını seçin", TS.bodySm, cs.onSurfaceVariant)
+                }
             }
-            Switch(vm.stylusOnly, { vm.stylusOnly = it })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                com.inknote.app.ThemeMode.values().forEach { mode ->
+                    val selected = vm.themeMode == mode
+                    val icon = when (mode) {
+                        com.inknote.app.ThemeMode.SYSTEM -> "brightness_auto"
+                        com.inknote.app.ThemeMode.LIGHT -> "light_mode"
+                        com.inknote.app.ThemeMode.DARK -> "dark_mode"
+                    }
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(FullShape)
+                            .background(if (selected) cs.primaryContainer else cs.surfaceContainerHigh)
+                            .clickable { vm.themeMode = mode }
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Sym(icon, 18.dp, if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant)
+                        Text(
+                            text = " ${mode.label}",
+                            style = TS.labelMd,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        // Palm Koruması
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(cs.surfaceContainerLow, rr(16))
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Sym("stylus_note", 20.dp, cs.primary)
+                    Txt("Palm Koruması (Yalnızca Kalem)", TS.titleMd, cs.onSurface, weight = FontWeight.SemiBold)
+                }
+                Txt("Açıkken yalnızca kalem çizer; parmak sayfayı kaydırır ve yakınlaştırır.", TS.bodySm, cs.onSurfaceVariant)
+            }
+            androidx.compose.material3.Switch(vm.stylusOnly, { vm.stylusOnly = it })
         }
     }
 }

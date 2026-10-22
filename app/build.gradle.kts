@@ -66,4 +66,6 @@ dependencies {
     implementation("androidx.ink:ink-storage:$ink")
     // Low-latency motion prediction
     implementation("androidx.input:input-motionprediction:1.0.0-beta05")
+
+    testImplementation("junit:junit:4.13.2")
 }

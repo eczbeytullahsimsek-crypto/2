@@ -4,7 +4,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Shapes
-import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -63,6 +63,27 @@ private val InkScheme = lightColorScheme(
     surfaceContainerHighest = Color(0xFFE6E1E9),
 )
 
+val InkDarkScheme = darkColorScheme(
+    primary = Color(0xFFBFC2FF), onPrimary = Color(0xFF1B1B78),
+    primaryContainer = Color(0xFF333799), onPrimaryContainer = Color(0xFFE0E0FF),
+    secondary = Color(0xFFBAC9C3), onSecondary = Color(0xFF25332F),
+    secondaryContainer = Color(0xFF3B4A45), onSecondaryContainer = Color(0xFFD6E5DF),
+    tertiary = Color(0xFFF3B4DF), onTertiary = Color(0xFF481C43),
+    tertiaryContainer = Color(0xFF62325A), onTertiaryContainer = Color(0xFFFFD7F1),
+    error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A), onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF131316), onBackground = Color(0xFFE5E1E6),
+    surface = Color(0xFF131316), onSurface = Color(0xFFE5E1E6),
+    surfaceVariant = Color(0xFF47464F), onSurfaceVariant = Color(0xFFC7C5D0),
+    outline = Color(0xFF91909A), outlineVariant = Color(0xFF47464F),
+    inverseSurface = Color(0xFFE5E1E6), inverseOnSurface = Color(0xFF313034), inversePrimary = Color(0xFF4E54C4),
+    surfaceTint = Color(0xFFBFC2FF),
+    surfaceBright = Color(0xFF39383D), surfaceDim = Color(0xFF131316),
+    surfaceContainerLowest = Color(0xFF0E0E11), surfaceContainerLow = Color(0xFF1B1B1E),
+    surfaceContainer = Color(0xFF1F1F23), surfaceContainerHigh = Color(0xFF2A292D),
+    surfaceContainerHighest = Color(0xFF353438),
+)
+
 // Tasarımdaki borderRadius: DEFAULT 1rem, lg 2rem, xl 3rem
 private val InkShapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(16.dp),
@@ -97,9 +118,10 @@ object TS {
 }
 
 @Composable
-fun InkTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = InkScheme, shapes = InkShapes) {
-        androidx.compose.runtime.CompositionLocalProvider(LocalContentColor provides InkScheme.onSurface) {
+fun InkTheme(darkTheme: Boolean = false, content: @Composable () -> Unit) {
+    val scheme = if (darkTheme) InkDarkScheme else InkScheme
+    MaterialTheme(colorScheme = scheme, shapes = InkShapes) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalContentColor provides scheme.onSurface) {
             content()
         }
     }

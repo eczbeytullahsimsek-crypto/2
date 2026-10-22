@@ -119,6 +119,8 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
     val nb = vm.current
     var showExportDialog by remember { mutableStateOf(false) }
     var showRecordingsDialog by remember { mutableStateOf(false) }
+    var showFloatingColorPicker by remember { mutableStateOf(false) }
+    var showPdfMarginDialog by remember { mutableStateOf(false) }
 
     if (nb == null) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -180,38 +182,39 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
         vm.scrollRequest?.let { if (it in 0 until pageCount) { listState.scrollToItem(it); vm.scrollRequest = null } }
     }
 
-    val screenPaddingHorizontal = if (vm.isFullScreen) 12.dp else 24.dp
-    val screenPaddingVertical = if (vm.isFullScreen) 8.dp else 16.dp
+    val screenPaddingHorizontal = if (vm.isFullScreen) 10.dp else 20.dp
+    val screenPaddingVertical = if (vm.isFullScreen) 6.dp else 12.dp
 
     Column(
         Modifier
             .fillMaxSize()
             .padding(horizontal = screenPaddingHorizontal, vertical = screenPaddingVertical)
     ) {
-        AppBar(
+        // Tek ve Kompakt Üst Bar (Tüm kontrolleri tek satırda birleştirir)
+        UnifiedCanvasTopBar(
             vm = vm,
             nb = nb,
             pageCount = pageCount,
             onOpenExport = { showExportDialog = true },
             onToggleRecord = { handleRecordClick() },
-            onOpenRecordings = { showRecordingsDialog = true }
+            onOpenRecordings = { showRecordingsDialog = true },
+            onOpenPdfMargins = { showPdfMarginDialog = true },
+            onOpenColorPicker = { showFloatingColorPicker = true }
         )
 
-        // Ses Kaydı Senkronize Replay Oynatıcı Çubuğu
+        // Ses Kaydı Senkronize Replay Oynatıcı Çubuğu (Kompakt ve İnce)
         AnimatedVisibility(
             visible = vm.audioManager.isReplayMode,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             Column {
-                Box(Modifier.height(8.dp))
-                AudioReplayBar(vm = vm)
+                Box(Modifier.height(6.dp))
+                SlimAudioReplayBar(vm = vm)
             }
         }
 
-        Box(Modifier.height(if (vm.isFullScreen) 8.dp else 14.dp))
-        Toolbar(vm, tone.third)
-        Box(Modifier.height(if (vm.isFullScreen) 8.dp else 14.dp))
+        Box(Modifier.height(if (vm.isFullScreen) 6.dp else 10.dp))
 
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             if (!vm.isFullScreen) {
@@ -265,9 +268,34 @@ fun CanvasScreen(vm: AppViewModel, onPickPdf: () -> Unit) {
                             .align(Alignment.CenterEnd)
                             .padding(end = 2.dp)
                     )
+
+                    // Yüzen Fırça ve Araç Menüsü (androidx.ink.brush & Basınç Ayarı)
+                    if (vm.showFloatingBrushMenu) {
+                        FloatingBrushMenu(
+                            vm = vm,
+                            dark = tone.third,
+                            onOpenColorPicker = { showFloatingColorPicker = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 20.dp, end = 20.dp)
+                        )
+                    }
                 }
             }
         }
+    }
+
+    if (showFloatingColorPicker) {
+        EnhancedColorPickerDialog(
+            currentColor = vm.inkColors.getOrNull(vm.colorIdx) ?: 0xFF1C1B1F.toInt(),
+            strokeWidthDp = vm.strokeWidthDp,
+            tool = vm.tool,
+            onDismiss = { showFloatingColorPicker = false },
+            onPick = { c ->
+                vm.selectColor(c)
+                showFloatingColorPicker = false
+            }
+        )
     }
 
     if (showExportDialog) {
@@ -956,6 +984,27 @@ private fun Toolbar(vm: AppViewModel, dark: Boolean) {
             }
             IconBtn("palette", box = 28.dp, icon = 18.dp, bg = cs.surfaceContainerHighest) { showColorPicker = true }
         }
+
+        Box(Modifier.width(1.dp).height(24.dp).background(cs.outlineVariant.copy(alpha = 0.5f)))
+
+        // 4. Yüzen Fırça ve Basınç Menüsü Düğmesi
+        Row(
+            Modifier
+                .clip(FullShape)
+                .background(if (vm.showFloatingBrushMenu) cs.primaryContainer else cs.surfaceContainerLow)
+                .clickable { vm.toggleFloatingBrushMenu() }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Sym("tune", 18.dp, if (vm.showFloatingBrushMenu) cs.primary else cs.onSurfaceVariant)
+            Text(
+                text = "Fırça & Basınç (%${(vm.pressureSensitivity * 100).roundToInt()})",
+                style = TS.labelSm,
+                fontWeight = FontWeight.SemiBold,
+                color = if (vm.showFloatingBrushMenu) cs.onPrimaryContainer else cs.onSurface
+            )
+        }
     }
 
     if (showColorPicker) {
@@ -1520,6 +1569,7 @@ private fun InkLayer(vm: AppViewModel, index: Int, aspect: Float, data: List<Str
                 v.tool = vm.tool
                 v.colorArgb = if (vm.colorIdx == 0 && dark) 0xFFF4EFF7.toInt() else vm.inkColors[vm.colorIdx.coerceIn(0, vm.inkColors.lastIndex)]
                 v.widthDp = vm.strokeWidthDp
+                v.pressureSensitivity = vm.pressureSensitivity
                 v.stylusOnly = vm.stylusOnly
                 v.setData(data)
             },

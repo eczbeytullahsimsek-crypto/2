@@ -26,6 +26,11 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 enum class Route { LIBRARY, CANVAS, PAGES, SEARCH, CLOUD, SETTINGS }
+enum class ThemeMode(val label: String) {
+    SYSTEM("Sistem"),
+    LIGHT("Açık"),
+    DARK("Koyu")
+}
 
 private class Edit(val page: Int, val before: List<StrokeData>, val after: List<StrokeData>)
 
@@ -34,11 +39,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val audioManager = com.inknote.app.audio.AudioManager(app, viewModelScope, repo)
     private var persistJob: kotlinx.coroutines.Job? = null
 
+    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     var route by mutableStateOf(Route.LIBRARY)
     val notebooks = mutableStateListOf<Notebook>()
     var openId by mutableStateOf<String?>(null)
         private set
     var message by mutableStateOf<String?>(null)
+
+    fun isDark(systemInDark: Boolean): Boolean = when (themeMode) {
+        ThemeMode.SYSTEM -> systemInDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+
+    fun toggleTheme() {
+        themeMode = when (themeMode) {
+            ThemeMode.SYSTEM -> ThemeMode.DARK
+            ThemeMode.DARK -> ThemeMode.LIGHT
+            ThemeMode.LIGHT -> ThemeMode.SYSTEM
+        }
+    }
 
     // --- Açık defterin sayfa verisi ---
     val pageData = mutableStateMapOf<Int, List<StrokeData>>()
@@ -57,6 +77,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var colorIdx by mutableStateOf(0)
     var widthIdx by mutableStateOf(2)
     var strokeWidthDp by mutableStateOf(2.4f)
+    var pressureSensitivity by mutableFloatStateOf(1.0f) // 0.4x (sert) .. 2.0x (yumuşak/hassas)
+    var showFloatingBrushMenu by mutableStateOf(true)
     var stylusOnly by mutableStateOf(false)
     var activePage by mutableStateOf(0)
     var scrollRequest by mutableStateOf<Int?>(null)
@@ -157,6 +179,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setPressure(value: Float) {
+        pressureSensitivity = value.coerceIn(0.4f, 2.0f)
+    }
+
+    fun toggleFloatingBrushMenu() {
+        showFloatingBrushMenu = !showFloatingBrushMenu
+    }
+
     init {
         notebooks.addAll(repo.loadNotebooks())
     }
@@ -200,6 +230,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleStar(id: String) = update(id) { it.copy(starred = !it.starred) }
     fun trash(id: String) = update(id) { it.copy(trashed = true) }
     fun restore(id: String) = update(id) { it.copy(trashed = false) }
+    fun updatePdfMargins(id: String, left: Float, right: Float, top: Float, bottom: Float) {
+        update(id) {
+            it.copy(
+                pdfMarginLeft = left.coerceIn(0f, 0.6f),
+                pdfMarginRight = right.coerceIn(0f, 0.6f),
+                pdfMarginTop = top.coerceIn(0f, 0.5f),
+                pdfMarginBottom = bottom.coerceIn(0f, 0.5f)
+            )
+        }
+    }
     fun deleteForever(id: String) {
         if (openId == id) closeNotebook()
         notebooks.removeAll { it.id == id }

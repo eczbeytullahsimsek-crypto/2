@@ -3,28 +3,24 @@ package com.inknote.app.ink
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.setValue
-import kotlin.math.max
 
 /**
- * ViewPort state manager that handles the canvas transformable state (zoom & pan)
- * completely decoupled from the stroke coordinate system.
+ * ViewPort state manager that handles the single-page coordinate system.
  *
  * Stroke Coordinate System:
  * - Fixed Document space: width = [DOC_WIDTH] (1000f), height = [docHeight] (1000f / aspect).
- * - All vector strokes ([androidx.ink.strokes.Stroke]) and stroke points are stored and built
- *   once in Document space.
+ * - All vector strokes ([androidx.ink.strokes.Stroke]) are stored and constructed
+ *   in Document space.
  *
  * Screen Coordinate System:
  * - Local view pixels: [viewWidth] x [viewHeight].
  *
  * Matrices:
- * - [strokeToViewMatrix]: Document -> View pixels. Used by [androidx.ink.rendering.android.canvas.CanvasStrokeRenderer]
- *   and hardware layers during draw passes.
- * - [viewToStrokeMatrix]: View pixels -> Document. Used by [androidx.ink.authoring.InProgressStrokesView]
- *   as motionEventToWorldTransform so stylus inputs are mapped to stroke coordinates with zero offset.
+ * - [strokeToViewMatrix]: Document -> View pixels. Scale = [viewWidth] / [docWidth].
+ *   Used by [androidx.ink.rendering.android.canvas.CanvasStrokeRenderer] during draw passes.
+ * - [viewToStrokeMatrix]: View pixels -> Document. Scale = [docWidth] / [viewWidth].
+ *   Used by [androidx.ink.authoring.InProgressStrokesView] as motionEventToWorldTransform so stylus
+ *   inputs map directly to document coordinates with ZERO offset at ANY zoom level.
  */
 class ViewPort(
     val docWidth: Float = DOC_WIDTH,
@@ -38,15 +34,10 @@ class ViewPort(
     var viewHeight: Float = 0f
         private set
 
-    // Observable Compose state for reactive UI if needed
-    var zoomScale: Float by mutableFloatStateOf(1.0f)
-        private set
-    var panX: Float by mutableFloatStateOf(0f)
-        private set
-    var panY: Float by mutableFloatStateOf(0f)
-        private set
+    val scale: Float
+        get() = if (docWidth > 0f && viewWidth > 0f) viewWidth / docWidth else 1.0f
 
-    // Dedicated hardware transformation matrices
+    // Dedicated transformation matrices
     val strokeToViewMatrix: Matrix = Matrix()
     val viewToStrokeMatrix: Matrix = Matrix()
 
@@ -71,81 +62,9 @@ class ViewPort(
         }
         if (changed) {
             updateMatrices()
-            clampPan()
-            updateMatrices()
             onTransformChanged?.invoke()
         }
         return changed
-    }
-
-    /**
-     * Sets zoom and pan offsets directly.
-     */
-    fun setZoomAndPan(newZoom: Float, newPanX: Float, newPanY: Float) {
-        val clampedZoom = newZoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
-        zoomScale = clampedZoom
-        if (clampedZoom <= 1.02f) {
-            panX = 0f
-            panY = 0f
-        } else {
-            panX = newPanX
-            panY = newPanY
-            clampPan()
-        }
-        updateMatrices()
-        onTransformChanged?.invoke()
-    }
-
-    /**
-     * Applies incremental pinch-to-zoom and two-finger pan relative to a focus point on screen.
-     */
-    fun applyTransformDelta(
-        zoomFactor: Float,
-        focusViewX: Float,
-        focusViewY: Float,
-        panDeltaX: Float,
-        panDeltaY: Float
-    ) {
-        val oldZoom = zoomScale
-        val targetZoom = (oldZoom * zoomFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        val actualFactor = targetZoom / oldZoom
-
-        zoomScale = targetZoom
-        if (targetZoom <= 1.02f) {
-            panX = 0f
-            panY = 0f
-        } else {
-            // Anchor zoom around focal point
-            panX = focusViewX - (focusViewX - panX) * actualFactor + panDeltaX
-            panY = focusViewY - (focusViewY - panY) * actualFactor + panDeltaY
-            clampPan()
-        }
-        updateMatrices()
-        onTransformChanged?.invoke()
-    }
-
-    /**
-     * Resets zoom and pan back to 100% fit.
-     */
-    fun reset() {
-        zoomScale = 1.0f
-        panX = 0f
-        panY = 0f
-        updateMatrices()
-        onTransformChanged?.invoke()
-    }
-
-    private fun clampPan() {
-        if (viewWidth <= 0f || viewHeight <= 0f) return
-        val baseScale = viewWidth / docWidth
-        val currentScale = baseScale * zoomScale
-        val renderedW = docWidth * currentScale
-        val renderedH = docHeight * currentScale
-
-        val maxPanX = max(0f, (renderedW - viewWidth) / 2f + viewWidth * 0.35f)
-        val maxPanY = max(0f, (renderedH - viewHeight) / 2f + viewHeight * 0.35f)
-        panX = panX.coerceIn(-maxPanX, maxPanX)
-        panY = panY.coerceIn(-maxPanY, maxPanY)
     }
 
     private fun updateMatrices() {
@@ -154,12 +73,9 @@ class ViewPort(
             viewToStrokeMatrix.reset()
             return
         }
-        val baseScale = viewWidth / docWidth
-        val totalScale = baseScale * zoomScale
-
+        val s = viewWidth / docWidth
         strokeToViewMatrix.reset()
-        strokeToViewMatrix.setScale(totalScale, totalScale)
-        strokeToViewMatrix.postTranslate(panX, panY)
+        strokeToViewMatrix.setScale(s, s)
 
         if (!strokeToViewMatrix.invert(viewToStrokeMatrix)) {
             viewToStrokeMatrix.reset()
@@ -191,7 +107,5 @@ class ViewPort(
 
     companion object {
         const val DOC_WIDTH = 1000f
-        const val MIN_ZOOM = 0.5f
-        const val MAX_ZOOM = 4.0f
     }
 }

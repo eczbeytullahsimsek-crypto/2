@@ -33,7 +33,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Başka bir uygulamadan "PDF ile aç" ile gelindiyse içe aktar
         if (savedInstanceState == null) intent?.data?.let { uri: Uri -> if (intent.type == "application/pdf") vm.importPdf(uri) }
-        setContent { InkTheme { App(vm) } }
+        setContent {
+            val dark = vm.isDark(androidx.compose.foundation.isSystemInDarkTheme())
+            InkTheme(darkTheme = dark) { App(vm) }
+        }
     }
 }
 
